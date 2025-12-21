@@ -1,0 +1,198 @@
+﻿@page "/org/request"
+@rendermode InteractiveServer
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using Volonterko.Data
+@using Volonterko.Domain.Enums
+
+@inject UserManager<ApplicationUser> UserManager
+@inject Volonterko.Services.OrganizationService OrgService
+
+@attribute [Authorize]
+
+<h3>Postani organizacija</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else
+{
+    @if (_existing is null && !_submitted)
+    {
+        <EditForm EditContext="_editContext"
+                  OnSubmit="HandleSubmitAsync"
+                  FormName="OrgRequestForm">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+            <div class="mb-3">
+                <label class="form-label">Naziv</label>
+                <input class="form-control"
+                       @bind-value="_model.Name"
+                       @bind-value:event="oninput" />
+                <ValidationMessage For="@(() => _model.Name)" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Grad</label>
+                <input class="form-control"
+                       @bind-value="_model.City"
+                       @bind-value:event="oninput" />
+                <ValidationMessage For="@(() => _model.City)" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Kontakt email</label>
+                <input class="form-control"
+                       @bind-value="_model.ContactEmail"
+                       @bind-value:event="oninput" />
+                <ValidationMessage For="@(() => _model.ContactEmail)" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Opis (opcionalno)</label>
+                <textarea class="form-control"
+                          rows="4"
+                          @bind-value="_model.Description"
+                          @bind-value:event="oninput"></textarea>
+                <ValidationMessage For="@(() => _model.Description)" />
+            </div>
+
+            <button class="btn btn-primary" type="submit" disabled="@_submitting">
+                Pošalji zahtjev
+            </button>
+        </EditForm>
+
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="mt-3 alert alert-success">@_message</div>
+    }
+
+    @if (_existing is not null)
+    {
+        <div class="mt-3 alert alert-info">
+            <b>Zahtjev postoji.</b><br />
+            Organizacija: <b>@_existing.Name</b><br />
+            Status: <b>@_existing.Status</b>
+        </div>
+
+        @if (_existing.Status == OrganizationStatus.Rejected)
+        {
+            <p>Zahtjev je odbijen. Za MVP držimo jedan zahtjev po korisniku.</p>
+        }
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private bool _submitting = false;
+    private bool _submitted = false;
+    private string? _message;
+
+    private Volonterko.Domain.Entities.Organization? _existing;
+
+    private RequestModel _model = new();
+    private EditContext _editContext = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _editContext = new EditContext(_model);
+
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        // Auto-fill email
+        _model.ContactEmail = user.Email ?? string.Empty;
+
+        _existing = await OrgService.GetByOwnerUserIdAsync(user.Id);
+
+        if (_existing is not null)
+            _submitted = true;
+
+        _loading = false;
+    }
+
+    private async Task HandleSubmitAsync(EditContext editContext)
+    {
+        _message = null;
+
+        // Manual validation (deterministic)
+        if (!editContext.Validate())
+        {
+            return;
+        }
+
+        _submitting = true;
+
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            _submitting = false;
+            return;
+        }
+
+        // Debug confirmation
+        Console.WriteLine($"SUBMIT OK: Name='{_model.Name}', City='{_model.City}', Email='{_model.ContactEmail}'");
+
+        await OrgService.CreateRequestAsync(
+            user.Id,
+            _model.Name,
+            _model.City,
+            _model.ContactEmail,
+            _model.Description);
+
+        _existing = await OrgService.GetByOwnerUserIdAsync(user.Id);
+
+        _message = "Zahtjev je zaprimljen. Status je: Pending.";
+        _submitted = true;
+
+        _submitting = false;
+    }
+
+    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        var principal = authState.User;
+
+        if (principal?.Identity?.IsAuthenticated != true)
+            return null;
+
+        return await UserManager.GetUserAsync(principal);
+    }
+
+    private class RequestModel
+    {
+        [Display(Name = "Naziv")]
+        [Required(ErrorMessage = "Naziv je obavezan.")]
+        [StringLength(200, ErrorMessage = "Naziv može imati najviše {1} znakova.")]
+        public string Name { get; set; } = string.Empty;
+
+        [Display(Name = "Grad")]
+        [Required(ErrorMessage = "Grad je obavezan.")]
+        [StringLength(120, ErrorMessage = "Grad može imati najviše {1} znakova.")]
+        public string City { get; set; } = string.Empty;
+
+        [Display(Name = "Kontakt email")]
+        [Required(ErrorMessage = "Kontakt email je obavezan.")]
+        [EmailAddress(ErrorMessage = "Unesi ispravnu email adresu.")]
+        [StringLength(256, ErrorMessage = "Email može imati najviše {1} znakova.")]
+        public string ContactEmail { get; set; } = string.Empty;
+
+        [Display(Name = "Opis")]
+        [StringLength(2000, ErrorMessage = "Opis može imati najviše {1} znakova.")]
+        public string? Description { get; set; }
+    }
+}

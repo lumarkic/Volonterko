@@ -1,0 +1,95 @@
+﻿@rendermode InteractiveServer
+
+@page "/admin/orgs"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@inject UserManager<ApplicationUser> UserManager
+@inject Volonterko.Services.OrganizationService OrgService
+@attribute [Authorize(Roles = Roles.Admin)]
+
+<h3>Admin: Organizacije (Pending)</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_pending.Count == 0)
+{
+    <div class="alert alert-secondary">Nema organizacija za odobravanje.</div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Naziv</th>
+                <th>Grad</th>
+                <th>Email</th>
+                <th>OwnerUserId</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var o in _pending)
+            {
+                <tr>
+                    <td>@o.Name</td>
+                    <td>@o.City</td>
+                    <td>@o.ContactEmail</td>
+                    <td style="font-family: monospace;">@o.OwnerUserId</td>
+                    <td class="text-end">
+                        <button class="btn btn-success btn-sm me-2" @onclick="() => ApproveAsync(o.Id, o.OwnerUserId)">Approve</button>
+                        <button class="btn btn-danger btn-sm" @onclick="() => RejectAsync(o.Id)">Reject</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="alert alert-info">@_message</div>
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private string? _message;
+    private List<Volonterko.Domain.Entities.Organization> _pending = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _message = null;
+        _pending = await OrgService.GetPendingAsync();
+        _loading = false;
+    }
+
+    private async Task ApproveAsync(int orgId, string ownerUserId)
+    {
+        await OrgService.ApproveAsync(orgId);
+
+        var user = await UserManager.FindByIdAsync(ownerUserId);
+        if (user is not null && !await UserManager.IsInRoleAsync(user, Roles.Organization))
+        {
+            await UserManager.AddToRoleAsync(user, Roles.Organization);
+        }
+
+        _message = "Organizacija odobrena i korisniku dodijeljena uloga Organization.";
+        await ReloadAsync();
+    }
+
+    private async Task RejectAsync(int orgId)
+    {
+        await OrgService.RejectAsync(orgId);
+        _message = "Organizacija odbijena.";
+        await ReloadAsync();
+    }
+}

@@ -1,0 +1,86 @@
+﻿<h3>OrgDashboard</h3>
+
+@code {
+
+}
+@page "/org"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Enums
+
+@inject UserManager<ApplicationUser> UserManager
+@inject Volonterko.Services.OrganizationService OrgService
+
+@attribute [Authorize(Roles = Roles.Organization)]
+
+<h3>Organizacija – Dashboard</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning">
+        Ne postoji organizacija vezana uz ovaj račun.
+    </div>
+}
+else
+{
+    <div class="alert alert-info">
+        <div><b>Naziv:</b> @_org.Name</div>
+        <div><b>Grad:</b> @_org.City</div>
+        <div><b>Kontakt email:</b> @_org.ContactEmail</div>
+        <div><b>Status:</b> @_org.Status</div>
+        <div><b>OrganizationId:</b> @_org.Id</div>
+    </div>
+
+    @if (_org.Status != OrganizationStatus.Approved)
+    {
+        <div class="alert alert-secondary">
+            Organizacija nije odobrena. Funkcionalnosti organizacije su ograničene.
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-success">
+            Organizacija je odobrena. Sljedeći korak: kreiranje volonterskih akcija.
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private Volonterko.Domain.Entities.Organization? _org;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _org = await OrgService.GetByOwnerUserIdAsync(user.Id);
+        _loading = false;
+    }
+
+    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        var principal = authState.User;
+
+        if (principal?.Identity?.IsAuthenticated != true)
+            return null;
+
+        return await UserManager.GetUserAsync(principal);
+    }
+}
