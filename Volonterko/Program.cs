@@ -6,12 +6,6 @@ using Volonterko.Components.Account;
 using Volonterko.Data;
 using Volonterko.Domain.Constants;
 
-//
-// Admin seed (dev/seminar):
-// email: admin@volonterko.local
-// pass:  Admin123!
-//
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
