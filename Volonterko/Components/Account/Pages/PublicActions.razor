@@ -1,0 +1,62 @@
+﻿@page "/actions"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using Volonterko.Domain.Enums
+@inject Volonterko.Data.ApplicationDbContext Db
+
+<h3>Volonterske akcije</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_actions.Count == 0)
+{
+    <div class="alert alert-secondary">Trenutno nema objavljenih akcija.</div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Naziv</th>
+                <th>Grad</th>
+                <th>Početak</th>
+                <th>Organizacija</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var a in _actions)
+            {
+                <tr>
+                    <td>@a.Title</td>
+                    <td>@a.City</td>
+                    <td>@a.StartDateTime.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@a.Organization.Name</td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary" href="@($"/actions/{a.Id}")">Detalji</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true;
+    private List<Volonterko.Domain.Entities.VolunteerAction> _actions = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actions = await Db.VolunteerActions
+            .AsNoTracking()
+            .Include(a => a.Organization)
+            .Where(a => a.Status == VolunteerActionStatus.Published)
+            .OrderBy(a => a.StartDateTime)
+            .ToListAsync();
+
+        _loading = false;
+    }
+}

@@ -1,0 +1,355 @@
+﻿@page "/org/actions/edit/{Id:int}"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Entities
+@using Volonterko.Domain.Enums
+
+@inject UserManager<ApplicationUser> UserManager
+@inject Volonterko.Services.OrganizationService OrgService
+@inject Volonterko.Services.VolunteerActionService ActionService
+@inject NavigationManager NavigationManager
+
+@attribute [Authorize(Roles = Roles.Organization)]
+
+<h3>Detalji / Uredi akciju</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning">Nema organizacije vezane uz ovaj račun.</div>
+}
+else if (_entity is null)
+{
+    <div class="alert alert-danger">Akcija ne postoji.</div>
+}
+else if (_entity.OrganizationId != _org.Id)
+{
+    <div class="alert alert-danger">Nemaš pravo uređivati ovu akciju.</div>
+}
+else
+{
+    <div class="mb-3">
+        <button class="btn btn-secondary" type="button" @onclick="BackToList">Natrag</button>
+        <button class="btn btn-outline-primary ms-2" type="button" @onclick="GoSignups">Prijave</button>
+
+        @if (_entity.Status == VolunteerActionStatus.Draft)
+        {
+            <button class="btn btn-success ms-2" type="button" @onclick="Publish" disabled="@_busy">Publish</button>
+        }
+        else if (_entity.Status == VolunteerActionStatus.Published)
+        {
+            <button class="btn btn-warning ms-2" type="button" @onclick="Unpublish" disabled="@_busy">Unpublish</button>
+        }
+
+        <button class="btn btn-outline-danger ms-2" type="button" @onclick="Delete" disabled="@_busy">Delete</button>
+    </div>
+
+    <div class="alert alert-info">
+        <div><b>ID:</b> @_entity.Id</div>
+        <div><b>Status:</b> @_entity.Status</div>
+        @if (_readOnly)
+        {
+            <div><b>Napomena:</b> Akcija je Published i polja su read-only. Napravi Unpublish za izmjene.</div>
+        }
+    </div>
+
+    <EditForm EditContext="_editContext" OnSubmit="HandleSubmit" FormName="OrgActionEditForm">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label">Naziv</label>
+            <input class="form-control" value="@_model.Title" disabled="@_readOnly" @oninput="OnTitleChanged" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Opis</label>
+            <textarea class="form-control" rows="4" disabled="@_readOnly" @oninput="OnDescriptionChanged">@_model.Description</textarea>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Grad</label>
+            <input class="form-control" value="@_model.City" disabled="@_readOnly" @oninput="OnCityChanged" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Adresa (opcionalno)</label>
+            <input class="form-control" value="@_model.Address" disabled="@_readOnly" @oninput="OnAddressChanged" />
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Početak (datum)</label>
+                <input type="date" class="form-control" value="@_model.StartDate" disabled="@_readOnly" @oninput="OnStartDateChanged" />
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Početak (HH:mm)</label>
+                <input type="time" class="form-control" step="60" value="@_model.StartTime" disabled="@_readOnly" @oninput="OnStartTimeChanged" />
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Kraj (datum)</label>
+                <input type="date" class="form-control" min="@StartDateMin" value="@_model.EndDate" disabled="@_readOnly" @oninput="OnEndDateChanged" />
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label">Kraj (HH:mm)</label>
+                <input type="time" class="form-control" step="60" min="@EndTimeMin" value="@_model.EndTime" disabled="@_readOnly" @oninput="OnEndTimeChanged" />
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Broj potrebnih volontera</label>
+            <input type="number" class="form-control" value="@_model.RequiredVolunteers" disabled="@_readOnly" @oninput="OnRequiredChanged" />
+        </div>
+
+        <button class="btn btn-primary" type="submit" disabled="@(_busy || _readOnly)">Spremi</button>
+
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <div class="mt-3 alert alert-info">@_message</div>
+        }
+    </EditForm>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private bool _busy = false;
+    private bool _readOnly = false;
+    private string? _message;
+
+    private Volonterko.Domain.Entities.Organization? _org;
+    private VolunteerAction? _entity;
+
+    private Model _model = new();
+    private EditContext _editContext = default!;
+
+    private string StartDateMin => _model.StartDate;
+    private string EndTimeMin => _model.EndDate == _model.StartDate ? _model.StartTime : "00:00";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _editContext = new EditContext(_model);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        _message = null;
+
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _org = await OrgService.GetByOwnerUserIdAsync(user.Id);
+        _entity = await ActionService.GetByIdAsync(Id);
+
+        if (_entity is not null)
+        {
+            _model.Title = _entity.Title;
+            _model.Description = _entity.Description;
+            _model.City = _entity.City;
+            _model.Address = _entity.Address;
+
+            _model.StartDate = _entity.StartDateTime.ToString("yyyy-MM-dd");
+            _model.EndDate = _entity.EndDateTime.ToString("yyyy-MM-dd");
+            _model.StartTime = _entity.StartDateTime.ToString("HH:mm");
+            _model.EndTime = _entity.EndDateTime.ToString("HH:mm");
+
+            _model.RequiredVolunteers = _entity.RequiredVolunteers;
+            _readOnly = _entity.Status == VolunteerActionStatus.Published;
+
+            NormalizeDates();
+        }
+
+        _loading = false;
+    }
+
+    private void NormalizeDates()
+    {
+        if (!DateTime.TryParse(_model.StartDate, out var sd)) sd = DateTime.Today;
+        if (!DateTime.TryParse(_model.EndDate, out var ed)) ed = sd;
+
+        if (ed.Date < sd.Date)
+        {
+            ed = sd.Date;
+            _model.EndDate = ed.ToString("yyyy-MM-dd");
+        }
+
+        if (!TimeSpan.TryParse(_model.StartTime, out var st)) st = new TimeSpan(9, 0, 0);
+        if (!TimeSpan.TryParse(_model.EndTime, out var et)) et = new TimeSpan(12, 0, 0);
+
+        if (ed.Date == sd.Date && et <= st)
+        {
+            var pushed = st.Add(TimeSpan.FromHours(1));
+            _model.EndTime = pushed.ToString(@"hh\:mm");
+        }
+    }
+
+    // handlers
+    private void OnTitleChanged(ChangeEventArgs e) => _model.Title = e.Value?.ToString() ?? "";
+    private void OnDescriptionChanged(ChangeEventArgs e) => _model.Description = e.Value?.ToString();
+    private void OnCityChanged(ChangeEventArgs e) => _model.City = e.Value?.ToString() ?? "";
+    private void OnAddressChanged(ChangeEventArgs e) => _model.Address = e.Value?.ToString();
+
+    private void OnStartDateChanged(ChangeEventArgs e) { _model.StartDate = e.Value?.ToString() ?? _model.StartDate; NormalizeDates(); }
+    private void OnStartTimeChanged(ChangeEventArgs e) { _model.StartTime = e.Value?.ToString() ?? _model.StartTime; NormalizeDates(); }
+    private void OnEndDateChanged(ChangeEventArgs e) { _model.EndDate = e.Value?.ToString() ?? _model.EndDate; NormalizeDates(); }
+    private void OnEndTimeChanged(ChangeEventArgs e) { _model.EndTime = e.Value?.ToString() ?? _model.EndTime; NormalizeDates(); }
+
+    private void OnRequiredChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var n))
+            _model.RequiredVolunteers = n;
+    }
+
+    private void BackToList() => NavigationManager.NavigateTo("/org/actions");
+    private void GoSignups() => NavigationManager.NavigateTo("/org/actions/" + Id + "/signups");
+
+    private async Task Publish()
+    {
+        if (_entity is null || _org is null) return;
+        if (_entity.OrganizationId != _org.Id) return;
+
+        _busy = true;
+        await ActionService.SetStatusAsync(_entity.Id, VolunteerActionStatus.Published);
+        _busy = false;
+
+        await Load();
+        _message = "Akcija je objavljena.";
+    }
+
+    private async Task Unpublish()
+    {
+        if (_entity is null || _org is null) return;
+        if (_entity.OrganizationId != _org.Id) return;
+
+        _busy = true;
+        await ActionService.SetStatusAsync(_entity.Id, VolunteerActionStatus.Draft);
+        _busy = false;
+
+        await Load();
+        _message = "Akcija je vraćena u Draft.";
+    }
+
+    private async Task Delete()
+    {
+        if (_entity is null || _org is null) return;
+        if (_entity.OrganizationId != _org.Id) return;
+
+        _busy = true;
+        var ok = await ActionService.DeleteAsync(_entity.Id);
+        _busy = false;
+
+        if (!ok)
+        {
+            _message = "Ne možeš obrisati akciju jer već postoje prijave (povijest/sati bi se izgubili).";
+            return;
+        }
+
+        NavigationManager.NavigateTo("/org/actions");
+    }
+
+    private async Task HandleSubmit(EditContext _)
+    {
+        _message = null;
+
+        if (_entity is null || _org is null) return;
+        if (_entity.OrganizationId != _org.Id)
+        {
+            _message = "Nemaš pravo uređivati ovu akciju.";
+            return;
+        }
+
+        if (_readOnly)
+        {
+            _message = "Akcija je Published i read-only. Napravi Unpublish za izmjene.";
+            return;
+        }
+
+        NormalizeDates();
+
+        if (!DateTime.TryParse(_model.StartDate, out var sd) || !DateTime.TryParse(_model.EndDate, out var ed))
+        {
+            _message = "Neispravan datum.";
+            return;
+        }
+
+        if (!TimeSpan.TryParse(_model.StartTime, out var st) || !TimeSpan.TryParse(_model.EndTime, out var et))
+        {
+            _message = "Vrijeme mora biti u formatu HH:mm (npr. 09:00).";
+            return;
+        }
+
+        var start = sd.Date + st;
+        var end = ed.Date + et;
+
+        if (end <= start)
+        {
+            _message = "Kraj mora biti nakon početka.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.Title) || string.IsNullOrWhiteSpace(_model.City))
+        {
+            _message = "Naziv i grad su obavezni.";
+            return;
+        }
+
+        _busy = true;
+
+        _entity.Title = _model.Title.Trim();
+        _entity.Description = string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description.Trim();
+        _entity.City = _model.City.Trim();
+        _entity.Address = string.IsNullOrWhiteSpace(_model.Address) ? null : _model.Address.Trim();
+        _entity.StartDateTime = start;
+        _entity.EndDateTime = end;
+        _entity.RequiredVolunteers = Math.Max(1, _model.RequiredVolunteers);
+
+        await ActionService.UpdateAsync(_entity);
+
+        _busy = false;
+        _message = "Spremljeno.";
+    }
+
+    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        var principal = authState.User;
+        if (principal?.Identity?.IsAuthenticated != true) return null;
+        return await UserManager.GetUserAsync(principal);
+    }
+
+    private class Model
+    {
+        public string Title { get; set; } = "";
+        public string? Description { get; set; }
+        public string City { get; set; } = "";
+        public string? Address { get; set; }
+
+        public string StartDate { get; set; } = DateTime.Today.ToString("yyyy-MM-dd");
+        public string EndDate { get; set; } = DateTime.Today.ToString("yyyy-MM-dd");
+        public string StartTime { get; set; } = "09:00";
+        public string EndTime { get; set; } = "12:00";
+
+        public int RequiredVolunteers { get; set; } = 5;
+    }
+}

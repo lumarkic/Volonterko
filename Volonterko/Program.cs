@@ -17,6 +17,9 @@ builder.Services.AddScoped<IdentityUserAccessor>();
 builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 builder.Services.AddScoped<Volonterko.Services.OrganizationService>();
+builder.Services.AddScoped<Volonterko.Services.VolunteerActionService>();
+builder.Services.AddScoped<Volonterko.Services.SignupService>();
+
 
 
 builder.Services.AddAuthentication(options =>

@@ -1,5 +1,8 @@
 ﻿@implements IDisposable
 
+@using Microsoft.AspNetCore.Components.Authorization
+@using Volonterko.Domain.Constants
+
 @inject NavigationManager NavigationManager
 
 <div class="top-row ps-3 navbar navbar-dark">
@@ -18,78 +21,79 @@
             </NavLink>
         </div>
 
+        <!-- Public actions are always accessible -->
         <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
+            <NavLink class="nav-link" href="actions">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Javne akcije
             </NavLink>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
+    
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="auth">
-                <span class="bi bi-lock-nav-menu" aria-hidden="true"></span> Auth Required
-            </NavLink>
-        </div>
-
-        <!-- Authenticated-only links -->
-        <AuthorizeView>
+        <AuthorizeView Context="auth">
             <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="org/request">
-                        <span class="bi bi-building-nav-menu" aria-hidden="true"></span> Postani organizacija
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
+                @{
+                    var isOrg = auth.User.IsInRole(Roles.Organization);
+                    var isAdmin = auth.User.IsInRole(Roles.Admin);
+                }
 
-        <!-- Organization-only links (placeholder for later) -->
-        <AuthorizeView Roles="Organization">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="org">
-                        <span class="bi bi-kanban-nav-menu" aria-hidden="true"></span> Org dashboard
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
+                @if (isOrg)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="org/actions">
+                            <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Moje akcije
+                        </NavLink>
+                    </div>
 
-        <!-- Admin-only links -->
-        <AuthorizeView Roles="Admin">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="admin/orgs">
-                        <span class="bi bi-shield-lock-nav-menu" aria-hidden="true"></span> Admin: Organizacije
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="org/actions/new">
+                            <span class="bi bi-plus-square-nav-menu" aria-hidden="true"></span> Nova akcija
+                        </NavLink>
+                    </div>
+                }
+                else
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="me/signups">
+                            <span class="bi bi-list-check-nav-menu" aria-hidden="true"></span> Moje prijave
+                        </NavLink>
+                    </div>
 
-        <!-- Existing auth block -->
-        <AuthorizeView>
-            <Authorized>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="org/request">
+                            <span class="bi bi-building-nav-menu" aria-hidden="true"></span> Postani organizacija
+                        </NavLink>
+                    </div>
+                }
+
+                @if (isAdmin)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/orgs">
+                            <span class="bi bi-shield-lock-nav-menu" aria-hidden="true"></span> Admin: Organizacije
+                        </NavLink>
+                    </div>
+                }
+
+                <!-- Identity: account + logout -->
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Manage">
-                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> @context.User.Identity?.Name
+                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> @auth.User.Identity?.Name
                     </NavLink>
                 </div>
+
                 <div class="nav-item px-3">
                     <form action="Account/Logout" method="post" @formname="LogoutForm">
-
                         <AntiforgeryToken />
                         <input type="hidden" name="ReturnUrl" value="@currentUrl" />
                         <button type="submit" class="nav-link">
                             <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Logout
                         </button>
                     </form>
-
                 </div>
             </Authorized>
-            <NotAuthorized>
+
+            <NotAuthorized Context="anon">
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Register">
                         <span class="bi bi-person-nav-menu" aria-hidden="true"></span> Register
@@ -102,6 +106,8 @@
                 </div>
             </NotAuthorized>
         </AuthorizeView>
+
+       
     </nav>
 </div>
 

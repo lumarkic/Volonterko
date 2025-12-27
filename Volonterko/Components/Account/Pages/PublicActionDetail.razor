@@ -1,0 +1,258 @@
+﻿@page "/actions/{Id:int}"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Enums
+@using Volonterko.Domain.Entities
+
+@inject ApplicationDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject Volonterko.Services.SignupService SignupService
+
+@attribute [AllowAnonymous]
+
+<h3>Detalji akcije</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_action is null)
+{
+    <div class="alert alert-danger">Akcija ne postoji.</div>
+}
+else
+{
+    <div class="alert alert-info">
+        <div><b>Naziv:</b> @_action.Title</div>
+        <div><b>Organizacija:</b> @(_action?.Organization?.Name ?? "-")</div>
+
+        <div><b>Grad:</b> @_action.City</div>
+        <div>
+            <b>Početak:</b> @_action.StartDateTime.ToString("yyyy-MM-dd HH:mm")
+            <span class="ms-2 small @GetWhenTextClass(_action.StartDateTime, _action.EndDateTime)">
+                (@GetWhenText(_action.StartDateTime, _action.EndDateTime))
+            </span>
+        </div>
+        <div><b>Kraj:</b> @_action.EndDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+        <div><b>Status akcije:</b> @_action.Status</div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_action.Description))
+    {
+        <p>@_action.Description</p>
+    }
+
+    <AuthorizeView>
+        <Authorized>
+            @if (_isOrgUser)
+            {
+                <div class="alert alert-warning">
+                    Ovaj account je organizacijski. Prijave volontera nisu dostupne za organizacijski account.
+                    Otvori zaseban volonterski account ako želiš prijavljivati se na akcije.
+                </div>
+            }
+            else
+            {
+                @if (!string.IsNullOrWhiteSpace(_message))
+                {
+                    <div class="mt-3 alert alert-info">@_message</div>
+                }
+
+                @if (_action.Status != VolunteerActionStatus.Published)
+                {
+                    <div class="mt-3 alert alert-secondary">Akcija nije otvorena za prijave.</div>
+                }
+                else if (_action.EndDateTime <= DateTime.Now)
+                {
+                    <div class="mt-3 alert alert-secondary">Akcija je završila.</div>
+                }
+                else if (_mySignup is not null && _mySignup.Status != SignupStatus.Cancelled && _mySignup.Status != SignupStatus.Rejected)
+                {
+                    <div class="mt-3">
+                        <span class="badge @GetSignupBadgeClass(_mySignup.Status)">
+                            @GetSignupStatusLabel(_mySignup.Status)
+                        </span>
+                    </div>
+
+                    @if (_mySignup.Status is SignupStatus.Applied or SignupStatus.Accepted)
+                    {
+                        <button class="btn btn-outline-danger mt-2" @onclick="CancelAsync" disabled="@_busy">Odjavi se</button>
+                    }
+                }
+                else if (_conflicts.Count > 0)
+                {
+                    <div class="mt-3 alert alert-warning">
+                        Ne možeš se prijaviti jer već imaš drugu aktivnu akciju koja se preklapa s ovim terminom.
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-primary" @onclick="ApplyAsync" disabled="@_busy">Prijavi se</button>
+                }
+            }
+        </Authorized>
+
+        <NotAuthorized>
+            <div class="mt-3 alert alert-warning">Za prijavu se moraš ulogirati.</div>
+        </NotAuthorized>
+    </AuthorizeView>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private VolunteerAction? _action;
+    private bool _loading = true;
+    private bool _busy = false;
+
+    private string? _message;
+
+    private ApplicationUser? _user;
+    private Signup? _mySignup;
+    private List<Signup> _conflicts = new();
+
+    private bool _isOrgUser = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _action = await Db.VolunteerActions
+            .AsNoTracking()
+            .Include(a => a.Organization)
+            .FirstOrDefaultAsync(a => a.Id == Id);
+
+        if (_action is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        var authState = await AuthenticationStateTask;
+        var principal = authState.User;
+
+        _isOrgUser = principal?.IsInRole(Roles.Organization) == true;
+
+        if (principal.Identity?.IsAuthenticated == true)
+        {
+            _user = await UserManager.GetUserAsync(principal);
+
+            if (_user is not null && !_isOrgUser)
+            {
+                _mySignup = await SignupService.GetMySignupForActionAsync(_action.Id, _user.Id);
+
+                if ((_mySignup is null || _mySignup.Status is SignupStatus.Cancelled or SignupStatus.Rejected)
+                    && _action.Status == VolunteerActionStatus.Published
+                    && _action.EndDateTime > DateTime.Now)
+                {
+                    _conflicts = await SignupService.GetConflictingSignupsAsync(_action.Id, _user.Id);
+                }
+            }
+        }
+
+        _loading = false;
+    }
+
+    private async Task ApplyAsync()
+    {
+        _message = null;
+        _busy = true;
+
+        if (_user is null || _action is null)
+        {
+            _busy = false;
+            return;
+        }
+
+        var created = await SignupService.CreateSignupAsync(_action.Id, _user.Id);
+
+        if (created is null)
+        {
+            _message = "Prijava nije moguća (moguće preklapanje termina ili pravila računa).";
+        }
+        else
+        {
+            _mySignup = await SignupService.GetMySignupForActionAsync(_action.Id, _user.Id);
+            _message = "Prijava je zaprimljena i čeka odobrenje organizacije.";
+        }
+
+        _busy = false;
+    }
+
+    private async Task CancelAsync()
+    {
+        _message = null;
+        _busy = true;
+
+        if (_user is null || _action is null)
+        {
+            _busy = false;
+            return;
+        }
+
+        var ok = await SignupService.CancelSignupAsync(_action.Id, _user.Id);
+        _message = ok ? "Odjavljen si s akcije." : "Odjava nije uspjela.";
+
+        _mySignup = await SignupService.GetMySignupForActionAsync(_action.Id, _user.Id);
+
+        _busy = false;
+    }
+
+    private static string GetSignupStatusLabel(SignupStatus st) => st switch
+    {
+        SignupStatus.Applied => "Na čekanju",
+        SignupStatus.Accepted => "Prihvaćen",
+        SignupStatus.Rejected => "Odbijen",
+        SignupStatus.Attended => "Odrađeno",
+        SignupStatus.NoShow => "Nije došao",
+        SignupStatus.Cancelled => "Odjavljeno",
+        _ => st.ToString()
+    };
+
+    private static string GetSignupBadgeClass(SignupStatus st) => st switch
+    {
+        SignupStatus.Applied => "bg-secondary",
+        SignupStatus.Accepted => "bg-success",
+        SignupStatus.Attended => "bg-primary",
+        SignupStatus.Rejected => "bg-danger",
+        SignupStatus.Cancelled => "bg-light text-dark border",
+        SignupStatus.NoShow => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private static string GetWhenText(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "Danas (u tijeku)";
+        if (start.Date == now.Date)
+        {
+            var hrs = (start - now).TotalHours;
+            if (hrs <= 1) return "Počinje uskoro";
+            return $"Danas u {start:HH:mm}";
+        }
+        if (start.Date == now.Date.AddDays(1)) return "Sutra";
+
+        var days = (start.Date - now.Date).Days;
+        if (days > 1 && days <= 14) return $"Za {days} dana";
+
+        if (start < now) return "Prošlo";
+        return start.ToString("yyyy-MM-dd");
+    }
+
+    private static string GetWhenTextClass(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "text-danger fw-semibold";
+        if (start.Date == now.Date) return "text-danger fw-semibold";
+        if (start <= now.AddDays(2)) return "text-warning fw-semibold";
+        return "text-muted";
+    }
+}

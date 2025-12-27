@@ -1,0 +1,652 @@
+﻿@page "/"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Enums
+
+@inject ApplicationDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else
+{
+    @if (!_isAuthenticated)
+    {
+        <!-- ===================== -->
+        <!-- LANDING (NOT LOGGED IN) -->
+        <!-- ===================== -->
+
+        <div class="card mb-4 border-0 shadow-sm">
+            <div class="card-body p-4 p-md-5">
+                <div class="row align-items-center g-4">
+                    <div class="col-lg-6">
+                        <div class="mb-3">
+                            <span class="badge bg-primary">Volonterko</span>
+                        </div>
+
+                        <h1 class="display-6 fw-semibold mb-3">
+                            Volontiranje koje se stvarno događa.
+                        </h1>
+
+                        <p class="lead mb-4">
+                            Volonterko povezuje ljude koji žele pomoći s organizacijama kojima je pomoć potrebna.
+                            Jednostavno pronađi akciju, prijavi se i sudjeluj.
+                        </p>
+
+                        <div class="d-flex flex-wrap gap-2">
+                            <a class="btn btn-primary btn-lg" href="Account/Register">
+                                Postani volonter
+                            </a>
+                            <a class="btn btn-outline-primary btn-lg" href="Account/Login">
+                                Prijava
+                            </a>
+                        </div>
+
+                        <div class="mt-4 text-muted small">
+                            Organizacija? Prijavi se i upravljaj akcijama kroz organizacijski modul.
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="ratio ratio-16x9 rounded overflow-hidden border">
+                            <img src="images/landing-hero.png"
+                                 alt="Volonteri pomažu zajednici"
+                                 style="width:100%; height:100%; object-fit:cover;" />
+                        </div>
+                     
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title mb-2">Za volontere</h5>
+                        <p class="mb-0 text-muted">
+                            Pronađi akcije u svojoj blizini, prijavi se u par klikova i prati svoje prijave.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title mb-2">Za organizacije</h5>
+                        <p class="mb-0 text-muted">
+                            Objavi akcije, obradi prijave i vodi evidenciju sudjelovanja – pregledno i brzo.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title mb-2">Za zajednicu</h5>
+                        <p class="mb-0 text-muted">
+                            Više angažmana, više dobrih priča i vidljiv doprinos na stvarnim lokacijama.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 bg-light mb-4">
+            <div class="card-body p-4">
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-8">
+                        <h5 class="mb-1">Kako funkcionira</h5>
+                        <div class="text-muted">
+                            1) Registriraj se → 2) Pronađi akciju → 3) Sudjeluj i napravi razliku.
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-md-end">
+                        <a class="btn btn-outline-primary" href="actions">Pogledaj javne akcije</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center text-muted small mb-2">
+            “Male akcije, veliki učinak.” – Volonterko
+        </div>
+    }
+    else
+    {
+        <!-- ===================== -->
+        <!-- LOGGED IN: ORG vs VOLUNTEER -->
+        <!-- ===================== -->
+        @if (!_isOrg)
+        {
+            <!-- VOLUNTEER VIEW: public feed + my widgets -->
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Objavljene akcije (Published)</h5>
+                        <a class="btn btn-sm btn-outline-primary" href="actions">Sve akcije</a>
+                    </div>
+
+                    @if (_publishedActions.Count == 0)
+                    {
+                        <div class="alert alert-secondary mt-3 mb-0">Trenutno nema objavljenih akcija.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm table-striped align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Naziv</th>
+                                        <th>Grad</th>
+                                        <th>Početak</th>
+                                        <th>Organizacija</th>
+                                        <th class="text-end"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var a in _publishedActions)
+                                    {
+                                        <tr class="@GetActionRowClass(a.StartDateTime, a.EndDateTime)">
+                                            <td>@a.Title</td>
+                                            <td>@a.City</td>
+                                            <td>
+                                                <div>@a.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                                <div class="small @GetWhenTextClass(a.StartDateTime, a.EndDateTime)">
+                                                    @GetWhenText(a.StartDateTime, a.EndDateTime)
+                                                </div>
+                                            </td>
+                                            <td>@a.OrganizationName</td>
+                                            <td class="text-end">
+                                                <div class="d-inline-flex align-items-center gap-2">
+                                                    @if (a.MySignupStatus is not null)
+                                                    {
+                                                        <span class="badge @GetSignupBadgeClass(a.MySignupStatus.Value)">
+                                                            @GetSignupStatusLabel(a.MySignupStatus.Value)
+                                                        </span>
+                                                    }
+                                                    @if (a.HasConflict && a.MySignupStatus is null)
+                                                    {
+                                                        <span class="badge bg-warning text-dark" title="@GetConflictTitle(a)">Preklapanje</span>
+                                                    }
+                                                    <a class="btn btn-sm btn-outline-primary" href="@($"/actions/{a.Id}")">Detalji</a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">Moje prijave</h6>
+                            <div class="display-6">@_mySignupsTotal</div>
+                            <div class="text-muted">ukupno</div>
+                            <a class="btn btn-sm btn-outline-primary mt-2" href="me/signups">Otvori</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">Čekam odgovor</h6>
+                            <div class="display-6">@_myPendingCount</div>
+                            <div class="text-muted">na čekanju</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">Moji sati</h6>
+                            <div class="display-6">@_myHoursTotal</div>
+                            <div class="text-muted">odrađeno</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @if (_myRecentSignups.Count > 0)
+            {
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">Zadnje prijave</h5>
+                            <a class="btn btn-sm btn-outline-primary" href="me/signups">Sve prijave</a>
+                        </div>
+
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm table-striped align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Akcija</th>
+                                        <th>Organizacija</th>
+                                        <th>Početak</th>
+                                        <th>Status</th>
+                                        <th class="text-end"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var s in _myRecentSignups)
+                                    {
+                                        <tr class="@GetActionRowClass(s.StartDateTime, s.EndDateTime)">
+                                            <td>@s.ActionTitle</td>
+                                            <td>@s.OrganizationName</td>
+                                            <td>
+                                                <div>@s.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                                <div class="small @GetWhenTextClass(s.StartDateTime, s.EndDateTime)">
+                                                    @GetWhenText(s.StartDateTime, s.EndDateTime)
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge @GetSignupBadgeClass(s.Status)">@GetSignupStatusLabel(s.Status)</span>
+                                            </td>
+                                            <td class="text-end">
+                                                <a class="btn btn-sm btn-outline-primary" href="@($"/actions/{s.ActionId}")">Detalji</a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <!-- ORGANIZATION VIEW -->
+
+            <div class="alert alert-secondary d-flex justify-content-between align-items-center">
+                <div>
+                    Organizacijski način rada: upravljanje akcijama i prijavama.
+                </div>
+                <a class="btn btn-sm btn-outline-primary" href="actions">Javne akcije</a>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Organizacija: brzi pregled</h5>
+                        <a class="btn btn-sm btn-outline-primary" href="org/actions">Moje akcije</a>
+                    </div>
+
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <h6 class="card-title">Akcije</h6>
+                                    <div class="display-6">@_orgTotalActions</div>
+                                    <div class="text-muted">ukupno</div>
+                                    <div class="small text-muted">Draft: @_orgDraftCount | Published: @_orgPublishedCount</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <h6 class="card-title">Prijave za obradu</h6>
+                                    <div class="display-6">@_orgPendingSignups</div>
+                                    <div class="text-muted">na čekanju</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <h6 class="card-title">Uskoro</h6>
+                                    <div class="display-6">@_orgUpcomingActions</div>
+                                    <div class="text-muted">sljedeće akcije</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (_orgPendingByAction.Count > 0)
+                    {
+                        <h6 class="mt-4">Akcije s prijavama koje čekaju</h6>
+                        <div class="table-responsive mt-2">
+                            <table class="table table-sm table-striped align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Akcija</th>
+                                        <th>Početak</th>
+                                        <th class="text-center">Applied</th>
+                                        <th class="text-end"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var r in _orgPendingByAction)
+                                    {
+                                        <tr class="@GetActionRowClass(r.StartDateTime, r.EndDateTime)">
+                                            <td>@r.ActionTitle</td>
+                                            <td>
+                                                <div>@r.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                                <div class="small @GetWhenTextClass(r.StartDateTime, r.EndDateTime)">
+                                                    @GetWhenText(r.StartDateTime, r.EndDateTime)
+                                                </div>
+                                            </td>
+                                            <td class="text-center"><span class="badge bg-warning text-dark">@r.AppliedCount</span></td>
+                                            <td class="text-end">
+                                                <a class="btn btn-sm btn-outline-primary" href="@($"/org/actions/{r.ActionId}/signups")">Otvori</a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private bool _isAuthenticated = false;
+    private bool _isOrg = false;
+
+    // public actions
+    private List<PublishedActionRow> _publishedActions = new();
+
+    // volunteer widgets
+    private int _mySignupsTotal = 0;
+    private int _myPendingCount = 0;
+    private decimal _myHoursTotal = 0m;
+    private List<MySignupRow> _myRecentSignups = new();
+
+    // org widgets
+    private int _orgTotalActions = 0;
+    private int _orgDraftCount = 0;
+    private int _orgPublishedCount = 0;
+    private int _orgPendingSignups = 0;
+    private int _orgUpcomingActions = 0;
+    private List<OrgPendingByActionRow> _orgPendingByAction = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        var principal = authState.User;
+
+        _isAuthenticated = principal?.Identity?.IsAuthenticated == true;
+        _isOrg = principal?.IsInRole(Roles.Organization) == true;
+
+        // Only load public feed for non-auth OR volunteer
+        if (!_isOrg)
+        {
+            _publishedActions = await Db.VolunteerActions
+                .AsNoTracking()
+                .Include(a => a.Organization)
+                .Where(a => a.Status == VolunteerActionStatus.Published)
+                .OrderBy(a => a.StartDateTime)
+                .Take(10)
+                .Select(a => new PublishedActionRow
+                {
+                    Id = a.Id,
+                    Title = a.Title,
+                    City = a.City,
+                    StartDateTime = a.StartDateTime,
+                    EndDateTime = a.EndDateTime,
+                    OrganizationName = a.Organization.Name
+                })
+                .ToListAsync();
+        }
+
+        if (_isAuthenticated)
+        {
+            var me = await UserManager.GetUserAsync(principal);
+            if (me is not null)
+            {
+                if (!_isOrg)
+                    await LoadVolunteerWidgets(me.Id);
+
+                if (_isOrg)
+                    await LoadOrganizationWidgets(me.Id);
+            }
+        }
+
+        _loading = false;
+    }
+
+    private async Task LoadVolunteerWidgets(string userId)
+    {
+        _mySignupsTotal = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId);
+        _myPendingCount = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId && s.Status == SignupStatus.Applied);
+
+        _myHoursTotal = await Db.Signups
+            .AsNoTracking()
+            .Where(s => s.UserId == userId && s.Status == SignupStatus.Attended && s.HoursAwarded != null)
+            .SumAsync(s => s.HoursAwarded ?? 0m);
+
+        _myRecentSignups = await Db.Signups
+            .AsNoTracking()
+            .Include(s => s.VolunteerAction).ThenInclude(a => a.Organization)
+            .Where(s => s.UserId == userId)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(5)
+            .Select(s => new MySignupRow
+            {
+                ActionId = s.VolunteerActionId,
+                ActionTitle = s.VolunteerAction.Title,
+                OrganizationName = s.VolunteerAction.Organization.Name,
+                StartDateTime = s.VolunteerAction.StartDateTime,
+                EndDateTime = s.VolunteerAction.EndDateTime,
+                Status = s.Status
+            })
+            .ToListAsync();
+
+        // enrich public feed with my status + conflicts
+        var publishedIds = _publishedActions.Select(x => x.Id).ToList();
+
+        var mySignupsForPublished = await Db.Signups
+            .AsNoTracking()
+            .Where(s => s.UserId == userId && publishedIds.Contains(s.VolunteerActionId))
+            .OrderByDescending(s => s.CreatedAt)
+            .ToListAsync();
+
+        var latestByAction = mySignupsForPublished
+            .GroupBy(s => s.VolunteerActionId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var myActiveWithActions = await Db.Signups
+            .AsNoTracking()
+            .Include(s => s.VolunteerAction)
+            .Where(s => s.UserId == userId && (s.Status == SignupStatus.Applied || s.Status == SignupStatus.Accepted))
+            .ToListAsync();
+
+        foreach (var a in _publishedActions)
+        {
+            if (latestByAction.TryGetValue(a.Id, out var s))
+                a.MySignupStatus = s.Status;
+
+            if (a.MySignupStatus is null)
+            {
+                var conflict = myActiveWithActions.FirstOrDefault(su =>
+                    su.VolunteerActionId != a.Id &&
+                    IsOverlapping(a.StartDateTime, a.EndDateTime, su.VolunteerAction.StartDateTime, su.VolunteerAction.EndDateTime));
+
+                if (conflict is not null)
+                {
+                    a.HasConflict = true;
+                    a.ConflictWithTitle = conflict.VolunteerAction.Title;
+                    a.ConflictStart = conflict.VolunteerAction.StartDateTime;
+                    a.ConflictEnd = conflict.VolunteerAction.EndDateTime;
+                }
+            }
+        }
+    }
+
+    private async Task LoadOrganizationWidgets(string ownerUserId)
+    {
+        var orgId = await Db.Organizations
+            .AsNoTracking()
+            .Where(o => o.OwnerUserId == ownerUserId)
+            .Select(o => (int?)o.Id)
+            .FirstOrDefaultAsync();
+
+        if (orgId is null) return;
+
+        _orgTotalActions = await Db.VolunteerActions.AsNoTracking().CountAsync(a => a.OrganizationId == orgId.Value);
+        _orgDraftCount = await Db.VolunteerActions.AsNoTracking().CountAsync(a => a.OrganizationId == orgId.Value && a.Status == VolunteerActionStatus.Draft);
+        _orgPublishedCount = await Db.VolunteerActions.AsNoTracking().CountAsync(a => a.OrganizationId == orgId.Value && a.Status == VolunteerActionStatus.Published);
+
+        _orgPendingSignups = await Db.Signups
+            .AsNoTracking()
+            .Include(s => s.VolunteerAction)
+            .CountAsync(s => s.Status == SignupStatus.Applied && s.VolunteerAction.OrganizationId == orgId.Value);
+
+        _orgUpcomingActions = await Db.VolunteerActions
+            .AsNoTracking()
+            .CountAsync(a => a.OrganizationId == orgId.Value && a.Status == VolunteerActionStatus.Published && a.StartDateTime >= DateTime.Now);
+
+        _orgPendingByAction = await Db.Signups
+            .AsNoTracking()
+            .Include(s => s.VolunteerAction)
+            .Where(s => s.Status == SignupStatus.Applied && s.VolunteerAction.OrganizationId == orgId.Value)
+            .GroupBy(s => new { s.VolunteerActionId, s.VolunteerAction.Title, s.VolunteerAction.StartDateTime, s.VolunteerAction.EndDateTime })
+            .Select(g => new OrgPendingByActionRow
+            {
+                ActionId = g.Key.VolunteerActionId,
+                ActionTitle = g.Key.Title,
+                StartDateTime = g.Key.StartDateTime,
+                EndDateTime = g.Key.EndDateTime,
+                AppliedCount = g.Count()
+            })
+            .OrderBy(g => g.StartDateTime)
+            .Take(10)
+            .ToListAsync();
+    }
+
+    private static bool IsOverlapping(DateTime aStart, DateTime aEnd, DateTime bStart, DateTime bEnd)
+        => aStart < bEnd && bStart < aEnd;
+
+    private static string GetWhenText(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "Danas (u tijeku)";
+        if (start.Date == now.Date)
+        {
+            var hrs = (start - now).TotalHours;
+            if (hrs <= 1) return "Počinje uskoro";
+            return $"Danas u {start:HH:mm}";
+        }
+        if (start.Date == now.Date.AddDays(1)) return "Sutra";
+
+        var days = (start.Date - now.Date).Days;
+        if (days > 1 && days <= 14) return $"Za {days} dana";
+
+        if (start < now) return "Prošlo";
+        return start.ToString("yyyy-MM-dd");
+    }
+
+    private static string GetWhenTextClass(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "text-danger fw-semibold";
+        if (start.Date == now.Date) return "text-danger fw-semibold";
+        if (start <= now.AddDays(2)) return "text-warning fw-semibold";
+        return "text-muted";
+    }
+
+    private static string GetActionRowClass(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "table-danger";
+        if (start.Date == now.Date) return "table-warning";
+        if (start <= now.AddDays(2)) return "table-warning";
+        return "";
+    }
+
+    private static string GetSignupStatusLabel(SignupStatus st) => st switch
+    {
+        SignupStatus.Applied => "Na čekanju",
+        SignupStatus.Accepted => "Prihvaćen",
+        SignupStatus.Rejected => "Odbijen",
+        SignupStatus.Attended => "Odrađeno",
+        SignupStatus.NoShow => "Nije došao",
+        SignupStatus.Cancelled => "Odjavljeno",
+        _ => st.ToString()
+    };
+
+    private static string GetSignupBadgeClass(SignupStatus st) => st switch
+    {
+        SignupStatus.Applied => "bg-secondary",
+        SignupStatus.Accepted => "bg-success",
+        SignupStatus.Attended => "bg-primary",
+        SignupStatus.Rejected => "bg-danger",
+        SignupStatus.Cancelled => "bg-light text-dark border",
+        SignupStatus.NoShow => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private static string GetConflictTitle(PublishedActionRow a)
+    {
+        if (!a.HasConflict || a.ConflictWithTitle is null) return "";
+        if (a.ConflictStart is not null && a.ConflictEnd is not null)
+            return $"Preklapa se s: {a.ConflictWithTitle} ({a.ConflictStart:yyyy-MM-dd HH:mm}–{a.ConflictEnd:HH:mm})";
+        return $"Preklapa se s: {a.ConflictWithTitle}";
+    }
+
+    private class PublishedActionRow
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public string City { get; set; } = "";
+        public DateTime StartDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+        public string OrganizationName { get; set; } = "";
+
+        public SignupStatus? MySignupStatus { get; set; }
+
+        public bool HasConflict { get; set; }
+        public string? ConflictWithTitle { get; set; }
+        public DateTime? ConflictStart { get; set; }
+        public DateTime? ConflictEnd { get; set; }
+    }
+
+    private class MySignupRow
+    {
+        public int ActionId { get; set; }
+        public string ActionTitle { get; set; } = "";
+        public string OrganizationName { get; set; } = "";
+        public DateTime StartDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+        public SignupStatus Status { get; set; }
+    }
+
+    private class OrgPendingByActionRow
+    {
+        public int ActionId { get; set; }
+        public string ActionTitle { get; set; } = "";
+        public DateTime StartDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+        public int AppliedCount { get; set; }
+    }
+}

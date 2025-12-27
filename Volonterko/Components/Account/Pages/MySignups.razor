@@ -1,0 +1,75 @@
+﻿@page "/me/signups"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Volonterko.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject Volonterko.Services.SignupService SignupService
+
+@attribute [Authorize]
+
+<h3>Moje prijave</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_signups.Count == 0)
+{
+    <div class="alert alert-secondary">Nema prijava.</div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Akcija</th>
+                <th>Organizacija</th>
+                <th>Početak</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var s in _signups)
+            {
+                <tr>
+                    <td>@s.VolunteerAction.Title</td>
+                    <td>@s.VolunteerAction.Organization.Name</td>
+                    <td>@s.VolunteerAction.StartDateTime.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@s.Status</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private List<Volonterko.Domain.Entities.Signup> _signups = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _signups = await SignupService.GetMySignupsAsync(user.Id);
+        _loading = false;
+    }
+
+    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        var principal = authState.User;
+        if (principal?.Identity?.IsAuthenticated != true) return null;
+        return await UserManager.GetUserAsync(principal);
+    }
+}

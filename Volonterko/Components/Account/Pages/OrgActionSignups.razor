@@ -1,0 +1,294 @@
+﻿@page "/org/actions/{ActionId:int}/signups"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Enums
+
+@inject UserManager<ApplicationUser> UserManager
+@inject ApplicationDbContext Db
+@inject Volonterko.Services.OrganizationService OrgService
+@inject Volonterko.Services.VolunteerActionService ActionService
+@inject Volonterko.Services.SignupService SignupService
+@inject NavigationManager NavigationManager
+
+@attribute [Authorize(Roles = Roles.Organization)]
+
+<h3>Prijave na akciju</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning">Nema organizacije vezane uz ovaj račun.</div>
+}
+else if (_action is null)
+{
+    <div class="alert alert-danger">Akcija ne postoji.</div>
+}
+else if (_action.OrganizationId != _org.Id)
+{
+    <div class="alert alert-danger">Nemaš pravo gledati prijave za ovu akciju.</div>
+}
+else
+{
+    <div class="mb-3">
+        <button class="btn btn-secondary" type="button" @onclick="BackToEdit">Natrag na akciju</button>
+    </div>
+
+    <div class="alert alert-info">
+        <div><b>Akcija:</b> @_action.Title</div>
+        <div><b>Status:</b> @_action.Status</div>
+        <div><b>Početak:</b> @_action.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+    </div>
+
+    @if (_rows.Count == 0)
+    {
+        <div class="alert alert-secondary">Nema prijava.</div>
+    }
+    else
+    {
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Korisnik</th>
+                    <th>Email</th>
+                    <th>Vrijeme prijave</th>
+                    <th>Status</th>
+                    <th>Sati</th>
+                    <th class="text-end"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.UserName</td>
+                        <td>@r.Email</td>
+                        <td>@r.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@r.Status</td>
+                        <td>@(r.HoursAwarded?.ToString("0.##") ?? "")</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-success me-2"
+                                    @onclick="() => SetStatus(r.SignupId, SignupStatus.Accepted)"
+                                    disabled="@_busy">
+                                Accept
+                            </button>
+
+                            <button class="btn btn-sm btn-danger me-2"
+                                    @onclick="() => SetStatus(r.SignupId, SignupStatus.Rejected)"
+                                    disabled="@_busy">
+                                Reject
+                            </button>
+
+                            <button class="btn btn-sm btn-outline-primary"
+                                    @onclick="() => OpenAttend(r.SignupId)"
+                                    disabled="@_busy">
+                                Attended
+                            </button>
+                        </td>
+                    </tr>
+
+                    @if (_attendSignupId == r.SignupId)
+                    {
+                        <tr>
+                            <td colspan="6">
+                                <div class="alert alert-warning mb-0 d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center">
+                                        <span class="me-2">Upiši sate:</span>
+                                        <input class="form-control form-control-sm"
+                                               style="width: 120px;"
+                                               @bind-value="_attendHoursText"
+                                               @bind-value:event="oninput"
+                                               placeholder="npr. 2.5" />
+                                    </div>
+
+                                    <div>
+                                        <button class="btn btn-sm btn-primary me-2"
+                                                @onclick="ConfirmAttend"
+                                                disabled="@_busy">
+                                            Spremi
+                                        </button>
+                                        <button class="btn btn-sm btn-secondary"
+                                                @onclick="CancelAttend"
+                                                disabled="@_busy">
+                                            Odustani
+                                        </button>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="alert alert-info">@_message</div>
+    }
+}
+
+@code {
+    [Parameter] public int ActionId { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private bool _busy = false;
+    private string? _message;
+
+    private Volonterko.Domain.Entities.Organization? _org;
+    private Volonterko.Domain.Entities.VolunteerAction? _action;
+
+    private List<Row> _rows = new();
+
+    // Attend UI state
+    private int? _attendSignupId = null;
+    private string _attendHoursText = "1.0";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private void BackToEdit()
+    {
+        NavigationManager.NavigateTo("/org/actions/edit/" + ActionId);
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _message = null;
+        _rows.Clear();
+
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _org = await OrgService.GetByOwnerUserIdAsync(user.Id);
+        _action = await ActionService.GetByIdAsync(ActionId);
+
+        if (_org is null || _action is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        var signups = await SignupService.GetSignupsForActionAsync(ActionId);
+
+        var userIds = signups.Select(s => s.UserId).Distinct().ToList();
+        var users = await Db.Users
+            .AsNoTracking()
+            .Where(u => userIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.UserName, u.Email })
+            .ToListAsync();
+
+        var userMap = users.ToDictionary(x => x.Id, x => x);
+
+        foreach (var s in signups)
+        {
+            userMap.TryGetValue(s.UserId, out var u);
+
+            _rows.Add(new Row
+            {
+                SignupId = s.Id,
+                UserId = s.UserId,
+                UserName = u?.UserName ?? s.UserId,
+                Email = u?.Email ?? "",
+                Status = s.Status,
+                CreatedAt = s.CreatedAt,
+                HoursAwarded = s.HoursAwarded
+            });
+        }
+
+        _loading = false;
+    }
+
+    private async Task SetStatus(int signupId, SignupStatus status)
+    {
+        _busy = true;
+        _message = null;
+
+        var ok = await SignupService.SetStatusAsync(signupId, status);
+        _message = ok ? $"Status promijenjen u: {status}" : "Greška pri spremanju.";
+
+        _busy = false;
+        await LoadAsync();
+    }
+
+    private void OpenAttend(int signupId)
+    {
+        _attendSignupId = signupId;
+        _attendHoursText = "1.0";
+        _message = null;
+    }
+
+    private void CancelAttend()
+    {
+        _attendSignupId = null;
+        _message = null;
+    }
+
+    private async Task ConfirmAttend()
+    {
+        if (_attendSignupId is null) return;
+
+        if (!decimal.TryParse(_attendHoursText.Replace(',', '.'), System.Globalization.NumberStyles.Any,
+                             System.Globalization.CultureInfo.InvariantCulture, out var hours))
+        {
+            _message = "Neispravan format sati (npr. 2.5).";
+            return;
+        }
+
+        if (hours <= 0)
+        {
+            _message = "Sati moraju biti veći od 0.";
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+
+        var ok = await SignupService.MarkAttendedAsync(_attendSignupId.Value, hours);
+        _message = ok ? "Označeno kao Attended i sati su spremljeni." : "Nije moguće označiti (provjeri status).";
+
+        _busy = false;
+        _attendSignupId = null;
+
+        await LoadAsync();
+    }
+
+    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    {
+        var authState = await AuthenticationStateTask;
+        var principal = authState.User;
+
+        if (principal?.Identity?.IsAuthenticated != true)
+            return null;
+
+        return await UserManager.GetUserAsync(principal);
+    }
+
+    private class Row
+    {
+        public int SignupId { get; set; }
+        public string UserId { get; set; } = "";
+        public string UserName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public SignupStatus Status { get; set; }
+        public decimal? HoursAwarded { get; set; }
+    }
+}
