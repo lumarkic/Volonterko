@@ -62,6 +62,43 @@ else
         }
     </div>
 
+    <!-- =============================== -->
+    <!-- ACTION IMAGE UPLOAD (NO SIGNALR) -->
+    <!-- =============================== -->
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <h5 class="card-title">Slika akcije</h5>
+
+            <div class="ratio ratio-16x9 rounded overflow-hidden border mb-2">
+                <img src="@GetActionImage(_entity.ImageUrl)"
+                     alt="Slika akcije"
+                     style="width:100%; height:100%; object-fit:cover;" />
+            </div>
+
+            <form method="post" enctype="multipart/form-data" action="@($"/api/actions/{Id}/image")">
+                <input type="file"
+                       name="file"
+                       class="form-control"
+                       accept="image/png,image/jpeg"
+                       disabled="@_readOnly" />
+                <button type="submit"
+                        class="btn btn-outline-primary mt-2"
+                        disabled="@(_busy || _readOnly)">
+                    Upload
+                </button>
+                <div class="text-muted small mt-2">PNG/JPG, max 5 MB.</div>
+            </form>
+
+            @if (!string.IsNullOrWhiteSpace(_imgMessage))
+            {
+                <div class="alert alert-info mt-3 mb-0">@_imgMessage</div>
+            }
+        </div>
+    </div>
+
+    <!-- =============================== -->
+    <!-- EDIT FORM -->
+    <!-- =============================== -->
     <EditForm EditContext="_editContext" OnSubmit="HandleSubmit" FormName="OrgActionEditForm">
         <DataAnnotationsValidator />
         <ValidationSummary />
@@ -124,13 +161,14 @@ else
 
 @code {
     [Parameter] public int Id { get; set; }
-
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private bool _loading = true;
     private bool _busy = false;
     private bool _readOnly = false;
+
     private string? _message;
+    private string? _imgMessage;
 
     private Volonterko.Domain.Entities.Organization? _org;
     private VolunteerAction? _entity;
@@ -144,7 +182,30 @@ else
     protected override async Task OnInitializedAsync()
     {
         _editContext = new EditContext(_model);
+        SetImgMessageFromQuery();
         await Load();
+    }
+
+    private void SetImgMessageFromQuery()
+    {
+        _imgMessage = null;
+
+        var uri = new Uri(NavigationManager.Uri);
+        var qs = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var img = qs["img"];
+
+        _imgMessage = img switch
+        {
+            "ok" => "Slika akcije je spremljena.",
+            "empty" => "Nije odabrana datoteka.",
+            "too_large" => "Datoteka je prevelika (max 5 MB).",
+            "bad_type" => "Dozvoljeni su samo PNG/JPG.",
+            "bad_request" => "Neispravan upload zahtjev.",
+            "save_failed" => "Spremanje slike nije uspjelo.",
+            "server_root" => "Server nije ispravno konfiguriran (WebRootPath).",
+            "error" => "Upload nije uspio (server error).",
+            _ => null
+        };
     }
 
     private async Task Load()
@@ -204,6 +265,62 @@ else
         }
     }
 
+    /// <summary>
+    /// Jedno mjesto koje mapira formu -> entitet i validira.
+    /// Ovo koristi i Spremi i Publish.
+    /// </summary>
+    private bool ApplyFormToEntityOrFail()
+    {
+        _message = null;
+
+        if (_entity is null)
+        {
+            _message = "Akcija nije učitana.";
+            return false;
+        }
+
+        NormalizeDates();
+
+        if (!DateTime.TryParse(_model.StartDate, out var sd) || !DateTime.TryParse(_model.EndDate, out var ed))
+        {
+            _message = "Neispravan datum.";
+            return false;
+        }
+
+        if (!TimeSpan.TryParse(_model.StartTime, out var st) || !TimeSpan.TryParse(_model.EndTime, out var et))
+        {
+            _message = "Vrijeme mora biti u formatu HH:mm (npr. 09:00).";
+            return false;
+        }
+
+        var start = sd.Date + st;
+        var end = ed.Date + et;
+
+        if (end <= start)
+        {
+            _message = "Kraj mora biti nakon početka.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.Title) || string.IsNullOrWhiteSpace(_model.City))
+        {
+            _message = "Naziv i grad su obavezni.";
+            return false;
+        }
+
+        _entity.Title = _model.Title.Trim();
+        _entity.Description = string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description.Trim();
+        _entity.City = _model.City.Trim();
+        _entity.Address = string.IsNullOrWhiteSpace(_model.Address) ? null : _model.Address.Trim();
+        _entity.StartDateTime = start;
+        _entity.EndDateTime = end;
+
+        // ✅ RequiredVolunteers is always saved from the form
+        _entity.RequiredVolunteers = Math.Max(1, _model.RequiredVolunteers);
+
+        return true;
+    }
+
     // handlers
     private void OnTitleChanged(ChangeEventArgs e) => _model.Title = e.Value?.ToString() ?? "";
     private void OnDescriptionChanged(ChangeEventArgs e) => _model.Description = e.Value?.ToString();
@@ -229,12 +346,20 @@ else
         if (_entity is null || _org is null) return;
         if (_entity.OrganizationId != _org.Id) return;
 
-        _busy = true;
-        await ActionService.SetStatusAsync(_entity.Id, VolunteerActionStatus.Published);
-        _busy = false;
+        if (_readOnly) return;
 
+        _busy = true;
+
+        // ✅ save form values first
+        if (ApplyFormToEntityOrFail())
+        {
+            await ActionService.UpdateAsync(_entity);
+            await ActionService.SetStatusAsync(_entity.Id, VolunteerActionStatus.Published);
+            _message = "Akcija je spremljena i objavljena.";
+        }
+
+        _busy = false;
         await Load();
-        _message = "Akcija je objavljena.";
     }
 
     private async Task Unpublish()
@@ -270,8 +395,6 @@ else
 
     private async Task HandleSubmit(EditContext _)
     {
-        _message = null;
-
         if (_entity is null || _org is null) return;
         if (_entity.OrganizationId != _org.Id)
         {
@@ -285,50 +408,20 @@ else
             return;
         }
 
-        NormalizeDates();
-
-        if (!DateTime.TryParse(_model.StartDate, out var sd) || !DateTime.TryParse(_model.EndDate, out var ed))
-        {
-            _message = "Neispravan datum.";
-            return;
-        }
-
-        if (!TimeSpan.TryParse(_model.StartTime, out var st) || !TimeSpan.TryParse(_model.EndTime, out var et))
-        {
-            _message = "Vrijeme mora biti u formatu HH:mm (npr. 09:00).";
-            return;
-        }
-
-        var start = sd.Date + st;
-        var end = ed.Date + et;
-
-        if (end <= start)
-        {
-            _message = "Kraj mora biti nakon početka.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_model.Title) || string.IsNullOrWhiteSpace(_model.City))
-        {
-            _message = "Naziv i grad su obavezni.";
-            return;
-        }
-
         _busy = true;
 
-        _entity.Title = _model.Title.Trim();
-        _entity.Description = string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description.Trim();
-        _entity.City = _model.City.Trim();
-        _entity.Address = string.IsNullOrWhiteSpace(_model.Address) ? null : _model.Address.Trim();
-        _entity.StartDateTime = start;
-        _entity.EndDateTime = end;
-        _entity.RequiredVolunteers = Math.Max(1, _model.RequiredVolunteers);
-
-        await ActionService.UpdateAsync(_entity);
+        if (ApplyFormToEntityOrFail())
+        {
+            await ActionService.UpdateAsync(_entity);
+            _message = "Spremljeno.";
+        }
 
         _busy = false;
-        _message = "Spremljeno.";
+        await Load();
     }
+
+    private static string GetActionImage(string? imageUrl)
+        => string.IsNullOrWhiteSpace(imageUrl) ? "/images/action-default.png" : "/" + imageUrl.TrimStart('/');
 
     private async Task<ApplicationUser?> GetCurrentUserAsync()
     {

@@ -13,21 +13,16 @@ namespace Volonterko.Data
         {
         }
 
-        // ===== DbSets (domenski entiteti) =====
-
         public DbSet<Organization> Organizations => Set<Organization>();
         public DbSet<VolunteerAction> VolunteerActions => Set<VolunteerAction>();
         public DbSet<Signup> Signups => Set<Signup>();
         public DbSet<Tag> Tags => Set<Tag>();
         public DbSet<VolunteerActionTag> VolunteerActionTags => Set<VolunteerActionTag>();
 
-        // ===== Fluent konfiguracija =====
-
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
 
-            // -------- Organization --------
             builder.Entity<Organization>(e =>
             {
                 e.HasKey(x => x.Id);
@@ -44,18 +39,19 @@ namespace Volonterko.Data
                     .HasMaxLength(256)
                     .IsRequired();
 
-                // Organization → VolunteerActions (1:N)
+                // ✅ logo url
+                e.Property(x => x.LogoUrl)
+                    .HasMaxLength(600);
+
                 e.HasMany(x => x.Actions)
                     .WithOne(x => x.Organization)
                     .HasForeignKey(x => x.OrganizationId)
                     .OnDelete(DeleteBehavior.Cascade);
 
-                // Jedan user = jedna organizacija (za MVP)
                 e.HasIndex(x => x.OwnerUserId)
                     .IsUnique();
             });
 
-            // -------- VolunteerAction --------
             builder.Entity<VolunteerAction>(e =>
             {
                 e.HasKey(x => x.Id);
@@ -68,28 +64,27 @@ namespace Volonterko.Data
                     .HasMaxLength(120)
                     .IsRequired();
 
-                // VolunteerAction → Signups (1:N)
+                // ✅ action image url
+                e.Property(x => x.ImageUrl)
+                    .HasMaxLength(600);
+
                 e.HasMany(x => x.Signups)
                     .WithOne(x => x.VolunteerAction)
                     .HasForeignKey(x => x.VolunteerActionId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
-            // -------- Signup --------
             builder.Entity<Signup>(e =>
             {
                 e.HasKey(x => x.Id);
 
-                // Jedan user se može prijaviti na jednu akciju samo jednom
                 e.HasIndex(x => new { x.UserId, x.VolunteerActionId })
                     .IsUnique();
 
-                // Explicit precision for SQL Server
                 e.Property(x => x.HoursAwarded)
                     .HasPrecision(6, 2);
             });
 
-            // -------- Tag --------
             builder.Entity<Tag>(e =>
             {
                 e.HasKey(x => x.Id);
@@ -102,7 +97,6 @@ namespace Volonterko.Data
                     .IsUnique();
             });
 
-            // -------- VolunteerActionTag (M:N join) --------
             builder.Entity<VolunteerActionTag>(e =>
             {
                 e.HasKey(x => new { x.VolunteerActionId, x.TagId });

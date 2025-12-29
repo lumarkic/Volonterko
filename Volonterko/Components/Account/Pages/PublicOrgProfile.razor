@@ -1,0 +1,223 @@
+﻿@page "/org/{OrgId:int}"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Volonterko.Data
+@using Volonterko.Domain.Enums
+
+@inject ApplicationDbContext Db
+
+@attribute [AllowAnonymous]
+
+<h3>Organizacija</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-danger">Organizacija ne postoji.</div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="ratio ratio-1x1 rounded overflow-hidden border mb-2">
+                        <img src="@GetOrgLogo(_org.LogoUrl)"
+                             alt="Logo"
+                             style="width:100%; height:100%; object-fit:cover;" />
+                    </div>
+
+                    <h4 class="h5 mb-1">@_org.Name</h4>
+                    <div class="text-muted small">@_org.City</div>
+
+                    @if (!string.IsNullOrWhiteSpace(_org.Description))
+                    {
+                        <hr />
+                        <div class="text-body">@FormatMultiline(_org.Description)</div>
+                    }
+                    else
+                    {
+                        <hr />
+                        <div class="text-muted">Organizacija nije dodala opis.</div>
+                    }
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h6 class="mb-2">Statistika</h6>
+
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted">Akcije ukupno</div>
+                        <div class="fw-semibold">@_totalActions</div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted">Published</div>
+                        <div class="fw-semibold">@_publishedActions</div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted">Završene</div>
+                        <div class="fw-semibold">@_pastActions</div>
+                    </div>
+
+                    <hr />
+
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted">Volontera (distinct)</div>
+                        <div class="fw-semibold">@_distinctVolunteers</div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <div class="text-muted">Ukupno sati</div>
+                        <div class="fw-semibold">@_totalHours</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Zadnje akcije</h5>
+
+                    @if (_recentActions.Count == 0)
+                    {
+                        <div class="alert alert-secondary mb-0">Trenutno nema objavljenih akcija.</div>
+                    }
+                    else
+                    {
+                        <div class="row g-3">
+                            @foreach (var a in _recentActions)
+                            {
+                                <div class="col-md-6">
+                                    <div class="card h-100 shadow-sm">
+                                        <div class="ratio ratio-16x9">
+                                            <img src="@GetActionImage(a.ImageUrl)"
+                                                 alt="Akcija"
+                                                 style="width:100%; height:100%; object-fit:cover;" />
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="fw-semibold">@a.Title</div>
+                                            <div class="text-muted small">
+                                                @a.City • @a.StartDateTime.ToString("dd/MM/yyyy HH:mm") – @a.EndDateTime.ToString("dd/MM/yyyy HH:mm")
+                                            </div>
+
+                                            <div class="mt-2 d-grid">
+                                                <a class="btn btn-outline-primary" href="@($"/actions/{a.Id}")">Detalji</a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="mt-3">
+                            <a class="btn btn-outline-primary" href="/actions">Pogledaj sve javne akcije</a>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int OrgId { get; set; }
+
+    private bool _loading = true;
+
+    private Volonterko.Domain.Entities.Organization? _org;
+
+    private int _totalActions;
+    private int _publishedActions;
+    private int _pastActions;
+
+    private int _distinctVolunteers;
+    private decimal _totalHours;
+
+    private List<ActionRow> _recentActions = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _org = await Db.Organizations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(o => o.Id == OrgId);
+
+        if (_org is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        var now = DateTime.Now;
+
+        _totalActions = await Db.VolunteerActions.AsNoTracking().CountAsync(a => a.OrganizationId == OrgId);
+        _publishedActions = await Db.VolunteerActions.AsNoTracking().CountAsync(a => a.OrganizationId == OrgId && a.Status == VolunteerActionStatus.Published);
+        _pastActions = await Db.VolunteerActions.AsNoTracking().CountAsync(a => a.OrganizationId == OrgId && a.EndDateTime < now);
+
+        _distinctVolunteers = await Db.Signups.AsNoTracking()
+            .Include(s => s.VolunteerAction)
+            .Where(s => s.VolunteerAction.OrganizationId == OrgId
+                        && (s.Status == SignupStatus.Accepted || s.Status == SignupStatus.Attended))
+            .Select(s => s.UserId)
+            .Distinct()
+            .CountAsync();
+
+        _totalHours = await Db.Signups.AsNoTracking()
+            .Include(s => s.VolunteerAction)
+            .Where(s => s.VolunteerAction.OrganizationId == OrgId
+                        && s.Status == SignupStatus.Attended
+                        && s.HoursAwarded != null)
+            .SumAsync(s => s.HoursAwarded ?? 0m);
+
+        _recentActions = await Db.VolunteerActions
+            .AsNoTracking()
+            .Where(a => a.OrganizationId == OrgId && a.Status == VolunteerActionStatus.Published)
+            .OrderByDescending(a => a.StartDateTime)
+            .Take(6)
+            .Select(a => new ActionRow
+            {
+                Id = a.Id,
+                Title = a.Title,
+                City = a.City,
+                StartDateTime = a.StartDateTime,
+                EndDateTime = a.EndDateTime,
+
+                ImageUrl = a.ImageUrl
+            })
+            .ToListAsync();
+
+        _loading = false;
+    }
+
+    private static string GetOrgLogo(string? logoUrl)
+        => string.IsNullOrWhiteSpace(logoUrl) ? "/images/org-default.png" : (logoUrl.StartsWith("/") ? logoUrl : "/" + logoUrl);
+
+    private static string GetActionImage(string? imageUrl)
+        => string.IsNullOrWhiteSpace(imageUrl) ? "/images/action-default.png" : (imageUrl.StartsWith("/") ? imageUrl : "/" + imageUrl);
+
+    private static MarkupString FormatMultiline(string text)
+    {
+        var encoded = System.Net.WebUtility.HtmlEncode(text);
+        return new MarkupString(encoded.Replace("\r\n", "<br />").Replace("\n", "<br />"));
+    }
+
+    private class ActionRow
+    {
+        public int Id { get; set; }
+
+        public string Title { get; set; } = "";
+        public string City { get; set; } = "";
+        public DateTime StartDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+
+        public string? ImageUrl { get; set; }
+    }
+}

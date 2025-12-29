@@ -1,13 +1,9 @@
-﻿<h3>OrgDashboard</h3>
-
-@code {
-
-}
-@page "/org"
+﻿@page "/org"
 @rendermode InteractiveServer
 
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Identity
 @using Volonterko.Data
 @using Volonterko.Domain.Constants
@@ -15,6 +11,7 @@
 
 @inject UserManager<ApplicationUser> UserManager
 @inject Volonterko.Services.OrganizationService OrgService
+@inject IWebHostEnvironment Env
 
 @attribute [Authorize(Roles = Roles.Organization)]
 
@@ -26,32 +23,59 @@
 }
 else if (_org is null)
 {
-    <div class="alert alert-warning">
-        Ne postoji organizacija vezana uz ovaj račun.
-    </div>
+    <div class="alert alert-warning">Ne postoji organizacija vezana uz ovaj račun.</div>
 }
 else
 {
-    <div class="alert alert-info">
-        <div><b>Naziv:</b> @_org.Name</div>
-        <div><b>Grad:</b> @_org.City</div>
-        <div><b>Kontakt email:</b> @_org.ContactEmail</div>
-        <div><b>Status:</b> @_org.Status</div>
-        <div><b>OrganizationId:</b> @_org.Id</div>
-    </div>
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="alert alert-info">
+                <div><b>Naziv:</b> @_org.Name</div>
+                <div><b>Grad:</b> @_org.City</div>
+                <div><b>Kontakt email:</b> @_org.ContactEmail</div>
+                <div><b>Status:</b> @_org.Status</div>
+                <div><b>OrganizationId:</b> @_org.Id</div>
+            </div>
 
-    @if (_org.Status != OrganizationStatus.Approved)
-    {
-        <div class="alert alert-secondary">
-            Organizacija nije odobrena. Funkcionalnosti organizacije su ograničene.
+            @if (_org.Status != OrganizationStatus.Approved)
+            {
+                <div class="alert alert-secondary">
+                    Organizacija nije odobrena. Funkcionalnosti organizacije su ograničene.
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-success">
+                    Organizacija je odobrena. Sljedeći korak: kreiranje volonterskih akcija.
+                </div>
+            }
         </div>
-    }
-    else
-    {
-        <div class="alert alert-success">
-            Organizacija je odobrena. Sljedeći korak: kreiranje volonterskih akcija.
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Logo organizacije</h5>
+
+                    <div class="ratio ratio-1x1 rounded overflow-hidden border mb-2">
+                        <img src="@GetOrgLogo(_org.LogoUrl)"
+                             alt="Logo"
+                             style="width:100%; height:100%; object-fit:cover;" />
+                    </div>
+
+                    <InputFile OnChange="OnLogoSelected" accept="image/png,image/jpeg" />
+
+                    <div class="text-muted small mt-2">
+                        PNG/JPG, max 2 MB.
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_message))
+                    {
+                        <div class="alert alert-info mt-3 mb-0">@_message</div>
+                    }
+                </div>
+            </div>
         </div>
-    }
+    </div>
 }
 
 @code {
@@ -59,6 +83,7 @@ else
 
     private bool _loading = true;
     private Volonterko.Domain.Entities.Organization? _org;
+    private string? _message;
 
     protected override async Task OnInitializedAsync()
     {
@@ -72,6 +97,55 @@ else
         _org = await OrgService.GetByOwnerUserIdAsync(user.Id);
         _loading = false;
     }
+
+    private async Task OnLogoSelected(InputFileChangeEventArgs e)
+    {
+        _message = null;
+
+        if (_org is null)
+            return;
+
+        var file = e.File;
+        if (file is null)
+            return;
+
+        if (file.Size > 2_000_000)
+        {
+            _message = "Datoteka je prevelika (max 2 MB).";
+            return;
+        }
+
+        var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+        if (ext != ".png" && ext != ".jpg" && ext != ".jpeg")
+        {
+            _message = "Dozvoljeni su samo PNG/JPG.";
+            return;
+        }
+
+        var uploadsDir = Path.Combine(Env.WebRootPath, "uploads", "orgs");
+        Directory.CreateDirectory(uploadsDir);
+
+        var safeName = $"{_org.Id}_{Guid.NewGuid():N}{ext}";
+        var fullPath = Path.Combine(uploadsDir, safeName);
+
+        await using (var fs = File.Create(fullPath))
+        {
+            await file.OpenReadStream(2_000_000).CopyToAsync(fs);
+        }
+
+        var relUrl = $"uploads/orgs/{safeName}";
+        await OrgService.SetLogoUrlAsync(_org.Id, relUrl);
+
+        // refresh org
+        var user = await GetCurrentUserAsync();
+        if (user is not null)
+            _org = await OrgService.GetByOwnerUserIdAsync(user.Id);
+
+        _message = "Logo je spremljen.";
+    }
+
+    private static string GetOrgLogo(string? logoUrl)
+        => string.IsNullOrWhiteSpace(logoUrl) ? "images/org-default.png" : logoUrl;
 
     private async Task<ApplicationUser?> GetCurrentUserAsync()
     {

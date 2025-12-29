@@ -16,8 +16,6 @@
 
 @attribute [AllowAnonymous]
 
-<h3>Detalji akcije</h3>
-
 @if (_loading)
 {
     <p>Učitavanje...</p>
@@ -28,80 +26,193 @@ else if (_action is null)
 }
 else
 {
-    <div class="alert alert-info">
-        <div><b>Naziv:</b> @_action.Title</div>
-        <div><b>Organizacija:</b> @(_action?.Organization?.Name ?? "-")</div>
-
-        <div><b>Grad:</b> @_action.City</div>
-        <div>
-            <b>Početak:</b> @_action.StartDateTime.ToString("yyyy-MM-dd HH:mm")
-            <span class="ms-2 small @GetWhenTextClass(_action.StartDateTime, _action.EndDateTime)">
-                (@GetWhenText(_action.StartDateTime, _action.EndDateTime))
-            </span>
-        </div>
-        <div><b>Kraj:</b> @_action.EndDateTime.ToString("yyyy-MM-dd HH:mm")</div>
-        <div><b>Status akcije:</b> @_action.Status</div>
-    </div>
-
-    @if (!string.IsNullOrWhiteSpace(_action.Description))
-    {
-        <p>@_action.Description</p>
-    }
-
-    <AuthorizeView>
-        <Authorized>
-            @if (_isOrgUser)
-            {
-                <div class="alert alert-warning">
-                    Ovaj account je organizacijski. Prijave volontera nisu dostupne za organizacijski account.
-                    Otvori zaseban volonterski account ako želiš prijavljivati se na akcije.
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="ratio ratio-16x9">
+                    <img src="@GetActionImage(_action.ImageUrl)"
+                         alt="Slika akcije"
+                         style="width:100%; height:100%; object-fit:cover;" />
                 </div>
-            }
-            else
-            {
-                @if (!string.IsNullOrWhiteSpace(_message))
-                {
-                    <div class="mt-3 alert alert-info">@_message</div>
-                }
 
-                @if (_action.Status != VolunteerActionStatus.Published)
-                {
-                    <div class="mt-3 alert alert-secondary">Akcija nije otvorena za prijave.</div>
-                }
-                else if (_action.EndDateTime <= DateTime.Now)
-                {
-                    <div class="mt-3 alert alert-secondary">Akcija je završila.</div>
-                }
-                else if (_mySignup is not null && _mySignup.Status != SignupStatus.Cancelled && _mySignup.Status != SignupStatus.Rejected)
-                {
-                    <div class="mt-3">
-                        <span class="badge @GetSignupBadgeClass(_mySignup.Status)">
-                            @GetSignupStatusLabel(_mySignup.Status)
-                        </span>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                        <div>
+                            <h2 class="h4 mb-1">@_action.Title</h2>
+                            <div class="text-muted">
+                                <a href="@($"/org/{_action.OrganizationId}")" class="text-decoration-none">
+                                    @_action.Organization.Name
+                                </a>
+                                • @_action.City
+                            </div>
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2">
+                            <span class="badge @GetUrgencyBadgeClass(_action.StartDateTime, _action.EndDateTime)">
+                                @GetWhenText(_action.StartDateTime, _action.EndDateTime)
+                            </span>
+                            <span class="badge bg-secondary">@_action.Status</span>
+                        </div>
                     </div>
 
-                    @if (_mySignup.Status is SignupStatus.Applied or SignupStatus.Accepted)
+                    <hr />
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="small text-muted">Početak</div>
+                            <div class="fw-semibold">@_action.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="small text-muted">Kraj</div>
+                            <div class="fw-semibold">@_action.EndDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(_action.Address))
+                        {
+                            <div class="col-12">
+                                <div class="small text-muted">Lokacija</div>
+                                <div>@_action.Address</div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_action.Description))
                     {
-                        <button class="btn btn-outline-danger mt-2" @onclick="CancelAsync" disabled="@_busy">Odjavi se</button>
+                        <hr />
+                        <h5 class="mb-2">Opis</h5>
+                        <div class="text-body">@FormatMultiline(_action.Description)</div>
                     }
-                }
-                else if (_conflicts.Count > 0)
-                {
-                    <div class="mt-3 alert alert-warning">
-                        Ne možeš se prijaviti jer već imaš drugu aktivnu akciju koja se preklapa s ovim terminom.
-                    </div>
-                }
-                else
-                {
-                    <button class="btn btn-primary" @onclick="ApplyAsync" disabled="@_busy">Prijavi se</button>
-                }
-            }
-        </Authorized>
+                    else
+                    {
+                        <hr />
+                        <div class="text-muted">Organizator nije dodao opis.</div>
+                    }
+                </div>
+            </div>
+        </div>
 
-        <NotAuthorized>
-            <div class="mt-3 alert alert-warning">Za prijavu se moraš ulogirati.</div>
-        </NotAuthorized>
-    </AuthorizeView>
+        <div class="col-lg-4">
+            <div class="card shadow-sm mb-3">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-3">
+                        <a href="@($"/org/{_action.OrganizationId}")"
+                           class="rounded-circle border bg-white overflow-hidden"
+                           style="width:48px; height:48px; display:block;">
+                            <img src="@GetOrgLogo(_action.Organization.LogoUrl)"
+                                 alt="Logo"
+                                 style="width:100%; height:100%; object-fit:cover;" />
+                        </a>
+
+                        <div class="flex-grow-1">
+                            <div class="text-muted small">Organizacija</div>
+                            <div class="fw-semibold">
+                                <a href="@($"/org/{_action.OrganizationId}")" class="text-decoration-none">
+                                    @_action.Organization.Name
+                                </a>
+                            </div>
+                            <div class="text-muted small">@_action.City</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Prijava</h5>
+
+                    @if (_action.RequiredVolunteers > 0)
+                    {
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between">
+                                <div class="text-muted">Prijavljeno</div>
+                                <div class="fw-semibold">@_signupCount</div>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <div class="text-muted">Kapacitet</div>
+                                <div class="fw-semibold">@_action.RequiredVolunteers</div>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <div class="text-muted">Preostalo</div>
+                                <div class="fw-semibold">@Math.Max(0, _action.RequiredVolunteers - _signupCount)</div>
+                            </div>
+
+                            @if (_isFull)
+                            {
+                                <div class="mt-2"><span class="badge bg-danger">Popunjeno</span></div>
+                            }
+
+                            <hr />
+                        </div>
+                    }
+
+                    <AuthorizeView Context="auth">
+                        <NotAuthorized>
+                            <div class="alert alert-warning mb-3">Za prijavu se moraš ulogirati.</div>
+                            <div class="d-grid gap-2">
+                                <a class="btn btn-primary" href="Account/Login">Prijava</a>
+                                <a class="btn btn-outline-primary" href="Account/Register">Registracija</a>
+                            </div>
+                        </NotAuthorized>
+
+                        <Authorized>
+                            @{
+                                var isOrgUser = auth.User.IsInRole(Roles.Organization);
+                            }
+
+                            @if (isOrgUser)
+                            {
+                                <div class="alert alert-warning mb-0">
+                                    Ovaj account je organizacijski. Prijave volontera nisu dostupne za organizacijski account.
+                                </div>
+                            }
+                            else
+                            {
+                                @if (!string.IsNullOrWhiteSpace(_message))
+                                {
+                                    <div class="alert alert-info">@_message</div>
+                                }
+
+                                @if (_action.Status != VolunteerActionStatus.Published)
+                                {
+                                    <div class="alert alert-secondary mb-0">Akcija nije otvorena za prijave.</div>
+                                }
+                                else if (_action.EndDateTime <= DateTime.Now)
+                                {
+                                    <div class="alert alert-secondary mb-0">Akcija je završila.</div>
+                                }
+                                else if (_action.RequiredVolunteers > 0 && _isFull && !(_mySignup is not null && _mySignup.Status != SignupStatus.Cancelled && _mySignup.Status != SignupStatus.Rejected))
+                                {
+                                    <div class="alert alert-danger mb-0">Akcija je popunjena.</div>
+                                }
+                                else if (_mySignup is not null && _mySignup.Status != SignupStatus.Cancelled && _mySignup.Status != SignupStatus.Rejected)
+                                {
+                                    <div class="mb-3">
+                                        <div class="small text-muted">Tvoj status</div>
+                                        <span class="badge @GetSignupBadgeClass(_mySignup.Status)">
+                                            @GetSignupStatusLabel(_mySignup.Status)
+                                        </span>
+                                    </div>
+
+                                    @if (_mySignup.Status is SignupStatus.Applied or SignupStatus.Accepted)
+                                    {
+                                        <button class="btn btn-outline-danger w-100" @onclick="CancelAsync" disabled="@_busy">Odjavi se</button>
+                                    }
+                                }
+                                else if (_conflicts.Count > 0)
+                                {
+                                    <div class="alert alert-warning mb-0">Preklapanje termina – prijava nije moguća.</div>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-primary w-100" @onclick="ApplyAsync" disabled="@_busy">Prijavi se</button>
+                                }
+                            }
+                        </Authorized>
+                    </AuthorizeView>
+                </div>
+            </div>
+        </div>
+    </div>
 }
 
 @code {
@@ -109,17 +220,18 @@ else
 
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
-    private VolunteerAction? _action;
     private bool _loading = true;
     private bool _busy = false;
-
     private string? _message;
 
+    private VolunteerAction? _action;
     private ApplicationUser? _user;
+
     private Signup? _mySignup;
     private List<Signup> _conflicts = new();
 
-    private bool _isOrgUser = false;
+    private int _signupCount = 0;
+    private bool _isFull = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -134,22 +246,28 @@ else
             return;
         }
 
+        _signupCount = await Db.Signups.AsNoTracking()
+            .CountAsync(s => s.VolunteerActionId == _action.Id
+                             && s.Status != SignupStatus.Cancelled
+                             && s.Status != SignupStatus.Rejected);
+
+        _isFull = _action.RequiredVolunteers > 0 && _signupCount >= _action.RequiredVolunteers;
+
         var authState = await AuthenticationStateTask;
         var principal = authState.User;
 
-        _isOrgUser = principal?.IsInRole(Roles.Organization) == true;
-
-        if (principal.Identity?.IsAuthenticated == true)
+        if (principal?.Identity?.IsAuthenticated == true)
         {
             _user = await UserManager.GetUserAsync(principal);
 
-            if (_user is not null && !_isOrgUser)
+            if (_user is not null)
             {
                 _mySignup = await SignupService.GetMySignupForActionAsync(_action.Id, _user.Id);
 
                 if ((_mySignup is null || _mySignup.Status is SignupStatus.Cancelled or SignupStatus.Rejected)
                     && _action.Status == VolunteerActionStatus.Published
-                    && _action.EndDateTime > DateTime.Now)
+                    && _action.EndDateTime > DateTime.Now
+                    && !principal.IsInRole(Roles.Organization))
                 {
                     _conflicts = await SignupService.GetConflictingSignupsAsync(_action.Id, _user.Id);
                 }
@@ -164,26 +282,35 @@ else
         _message = null;
         _busy = true;
 
-        if (_user is null || _action is null)
+        try
+        {
+            if (_user is null || _action is null) return;
+
+            var created = await SignupService.CreateSignupAsync(_action.Id, _user.Id);
+            _message = created is null
+                ? "Prijava nije moguća (kapacitet / preklapanje / pravila računa)."
+                : "Prijava je zaprimljena i čeka odobrenje.";
+
+            _mySignup = await SignupService.GetMySignupForActionAsync(_action.Id, _user.Id);
+
+            _signupCount = await Db.Signups.AsNoTracking()
+                .CountAsync(s => s.VolunteerActionId == _action.Id
+                                 && s.Status != SignupStatus.Cancelled
+                                 && s.Status != SignupStatus.Rejected);
+
+            _isFull = _action.RequiredVolunteers > 0 && _signupCount >= _action.RequiredVolunteers;
+        }
+        catch (Exception ex)
+        {
+            _message = $"Greška pri prijavi: {ex.Message}";
+        }
+        finally
         {
             _busy = false;
-            return;
+            StateHasChanged();
         }
-
-        var created = await SignupService.CreateSignupAsync(_action.Id, _user.Id);
-
-        if (created is null)
-        {
-            _message = "Prijava nije moguća (moguće preklapanje termina ili pravila računa).";
-        }
-        else
-        {
-            _mySignup = await SignupService.GetMySignupForActionAsync(_action.Id, _user.Id);
-            _message = "Prijava je zaprimljena i čeka odobrenje organizacije.";
-        }
-
-        _busy = false;
     }
+
 
     private async Task CancelAsync()
     {
@@ -201,8 +328,21 @@ else
 
         _mySignup = await SignupService.GetMySignupForActionAsync(_action.Id, _user.Id);
 
+        _signupCount = await Db.Signups.AsNoTracking()
+            .CountAsync(s => s.VolunteerActionId == _action.Id
+                             && s.Status != SignupStatus.Cancelled
+                             && s.Status != SignupStatus.Rejected);
+
+        _isFull = _action.RequiredVolunteers > 0 && _signupCount >= _action.RequiredVolunteers;
+
         _busy = false;
     }
+
+    private static string GetActionImage(string? imageUrl)
+        => string.IsNullOrWhiteSpace(imageUrl) ? "/images/action-default.png" : (imageUrl.StartsWith("/") ? imageUrl : "/" + imageUrl);
+
+    private static string GetOrgLogo(string? logoUrl)
+        => string.IsNullOrWhiteSpace(logoUrl) ? "/images/org-default.png" : (logoUrl.StartsWith("/") ? logoUrl : "/" + logoUrl);
 
     private static string GetSignupStatusLabel(SignupStatus st) => st switch
     {
@@ -230,29 +370,30 @@ else
     {
         var now = DateTime.Now;
 
-        if (now >= start && now <= end) return "Danas (u tijeku)";
-        if (start.Date == now.Date)
-        {
-            var hrs = (start - now).TotalHours;
-            if (hrs <= 1) return "Počinje uskoro";
-            return $"Danas u {start:HH:mm}";
-        }
+        if (now >= start && now <= end) return "U tijeku";
+        if (start.Date == now.Date) return "Danas";
         if (start.Date == now.Date.AddDays(1)) return "Sutra";
 
         var days = (start.Date - now.Date).Days;
         if (days > 1 && days <= 14) return $"Za {days} dana";
-
         if (start < now) return "Prošlo";
+
         return start.ToString("yyyy-MM-dd");
     }
 
-    private static string GetWhenTextClass(DateTime start, DateTime end)
+    private static string GetUrgencyBadgeClass(DateTime start, DateTime end)
     {
         var now = DateTime.Now;
 
-        if (now >= start && now <= end) return "text-danger fw-semibold";
-        if (start.Date == now.Date) return "text-danger fw-semibold";
-        if (start <= now.AddDays(2)) return "text-warning fw-semibold";
-        return "text-muted";
+        if (now >= start && now <= end) return "bg-danger";
+        if (start.Date == now.Date) return "bg-warning text-dark";
+        if (start <= now.AddDays(2)) return "bg-warning text-dark";
+        return "bg-primary";
+    }
+
+    private static MarkupString FormatMultiline(string text)
+    {
+        var encoded = System.Net.WebUtility.HtmlEncode(text);
+        return new MarkupString(encoded.Replace("\r\n", "<br />").Replace("\n", "<br />"));
     }
 }

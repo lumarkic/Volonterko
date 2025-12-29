@@ -8,6 +8,7 @@ public class Organization
 
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+
     public string City { get; set; } = string.Empty;
     public string ContactEmail { get; set; } = string.Empty;
 
@@ -15,6 +16,9 @@ public class Organization
 
     // Identity user who owns/manages this organization
     public string OwnerUserId { get; set; } = string.Empty;
+
+    // Optional logo (relative URL under wwwroot, e.g. "uploads/orgs/..png")
+    public string? LogoUrl { get; set; }
 
     public List<VolunteerAction> Actions { get; set; } = new();
 }

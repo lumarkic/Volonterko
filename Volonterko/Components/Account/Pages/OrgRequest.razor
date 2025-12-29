@@ -1,16 +1,17 @@
 ﻿@page "/org/request"
 @rendermode InteractiveServer
 
-@using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Identity
 @using Volonterko.Data
+@using Volonterko.Domain.Constants
 @using Volonterko.Domain.Enums
 
 @inject UserManager<ApplicationUser> UserManager
 @inject Volonterko.Services.OrganizationService OrgService
+@inject NavigationManager NavigationManager
 
 @attribute [Authorize]
 
@@ -20,179 +21,195 @@
 {
     <p>Učitavanje...</p>
 }
+else if (_isOrgRole)
+{
+    <div class="alert alert-success">
+        Već imaš organizacijsku rolu. Možeš koristiti organizacijski meni.
+    </div>
+}
+else if (_org is not null)
+{
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <h5 class="card-title mb-2">Status zahtjeva</h5>
+
+            <div class="mb-2"><b>Naziv:</b> @_org.Name</div>
+            <div class="mb-2"><b>Grad:</b> @_org.City</div>
+            <div class="mb-2"><b>Kontakt:</b> @_org.ContactEmail</div>
+            <div class="mb-2"><b>Status:</b> <span class="badge @StatusBadge(_org.Status)">@_org.Status</span></div>
+
+            @if (_org.Status == OrganizationStatus.Pending)
+            {
+                <div class="alert alert-warning mt-3 mb-0">
+                    Zahtjev je zaprimljen i čeka odobrenje admina.
+                </div>
+            }
+            else if (_org.Status == OrganizationStatus.Approved)
+            {
+                <div class="alert alert-success mt-3 mb-0">
+                    Organizacija je odobrena.
+                    <div class="mt-2">
+                        Da bi se organizacijski meni pojavio, napravi <b>Logout</b> i ponovno <b>Login</b>.
+                    </div>
+                </div>
+            }
+            else if (_org.Status == OrganizationStatus.Rejected)
+            {
+                <div class="alert alert-danger mt-3">
+                    Zahtjev je odbijen. Možeš poslati novi zahtjev (npr. s dopunjenim opisom).
+                </div>
+
+                <button class="btn btn-outline-primary" @onclick="ResetForNewRequest" disabled="@_busy">
+                    Pošalji novi zahtjev
+                </button>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_message))
+            {
+                <div class="alert alert-info mt-3 mb-0">@_message</div>
+            }
+        </div>
+    </div>
+}
 else
 {
-    @if (_existing is null && !_submitted)
-    {
-        <EditForm EditContext="_editContext"
-                  OnSubmit="HandleSubmitAsync"
-                  FormName="OrgRequestForm">
-            <DataAnnotationsValidator />
-            <ValidationSummary />
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <h5 class="card-title">Zahtjev za organizaciju</h5>
 
-            <div class="mb-3">
-                <label class="form-label">Naziv</label>
-                <input class="form-control"
-                       @bind-value="_model.Name"
-                       @bind-value:event="oninput" />
-                <ValidationMessage For="@(() => _model.Name)" />
-            </div>
+            <EditForm EditContext="_editContext" OnSubmit="SubmitRequest" FormName="OrgRequestForm">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
 
-            <div class="mb-3">
-                <label class="form-label">Grad</label>
-                <input class="form-control"
-                       @bind-value="_model.City"
-                       @bind-value:event="oninput" />
-                <ValidationMessage For="@(() => _model.City)" />
-            </div>
+                <div class="mb-3">
+                    <label class="form-label">Naziv organizacije</label>
+                    <input class="form-control" value="@_model.Name" @oninput="OnNameChanged" disabled="@_busy" />
+                </div>
 
-            <div class="mb-3">
-                <label class="form-label">Kontakt email</label>
-                <input class="form-control"
-                       @bind-value="_model.ContactEmail"
-                       @bind-value:event="oninput" />
-                <ValidationMessage For="@(() => _model.ContactEmail)" />
-            </div>
+                <div class="mb-3">
+                    <label class="form-label">Grad</label>
+                    <input class="form-control" value="@_model.City" @oninput="OnCityChanged" disabled="@_busy" />
+                </div>
 
-            <div class="mb-3">
-                <label class="form-label">Opis (opcionalno)</label>
-                <textarea class="form-control"
-                          rows="4"
-                          @bind-value="_model.Description"
-                          @bind-value:event="oninput"></textarea>
-                <ValidationMessage For="@(() => _model.Description)" />
-            </div>
+                <div class="mb-3">
+                    <label class="form-label">Kontakt email</label>
+                    <input class="form-control" value="@_model.ContactEmail" @oninput="OnEmailChanged" disabled="@_busy" />
+                </div>
 
-            <button class="btn btn-primary" type="submit" disabled="@_submitting">
-                Pošalji zahtjev
-            </button>
-        </EditForm>
+                <div class="mb-3">
+                    <label class="form-label">Opis</label>
+                    <textarea class="form-control" rows="5" @oninput="OnDescriptionChanged" disabled="@_busy">@_model.Description</textarea>
+                </div>
 
-    }
+                <button class="btn btn-primary" type="submit" disabled="@_busy">Pošalji zahtjev</button>
 
-    @if (!string.IsNullOrWhiteSpace(_message))
-    {
-        <div class="mt-3 alert alert-success">@_message</div>
-    }
-
-    @if (_existing is not null)
-    {
-        <div class="mt-3 alert alert-info">
-            <b>Zahtjev postoji.</b><br />
-            Organizacija: <b>@_existing.Name</b><br />
-            Status: <b>@_existing.Status</b>
+                @if (!string.IsNullOrWhiteSpace(_message))
+                {
+                    <div class="alert alert-info mt-3 mb-0">@_message</div>
+                }
+            </EditForm>
         </div>
-
-        @if (_existing.Status == OrganizationStatus.Rejected)
-        {
-            <p>Zahtjev je odbijen. Za MVP držimo jedan zahtjev po korisniku.</p>
-        }
-    }
+    </div>
 }
 
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private bool _loading = true;
-    private bool _submitting = false;
-    private bool _submitted = false;
+    private bool _busy = false;
+
+    private bool _isOrgRole = false;
+
     private string? _message;
 
-    private Volonterko.Domain.Entities.Organization? _existing;
+    private Volonterko.Domain.Entities.Organization? _org;
 
-    private RequestModel _model = new();
     private EditContext _editContext = default!;
+    private Model _model = new();
 
     protected override async Task OnInitializedAsync()
     {
         _editContext = new EditContext(_model);
 
-        var user = await GetCurrentUserAsync();
-        if (user is null)
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
+
+        _isOrgRole = principal.IsInRole(Roles.Organization);
+
+        var me = await UserManager.GetUserAsync(principal);
+        if (me is null)
         {
             _loading = false;
             return;
         }
 
-        // Auto-fill email
-        _model.ContactEmail = user.Email ?? string.Empty;
-
-        _existing = await OrgService.GetByOwnerUserIdAsync(user.Id);
-
-        if (_existing is not null)
-            _submitted = true;
+        _org = await OrgService.GetByOwnerUserIdAsync(me.Id);
 
         _loading = false;
     }
 
-    private async Task HandleSubmitAsync(EditContext editContext)
+    private async Task SubmitRequest(EditContext _)
     {
         _message = null;
+        _busy = true;
 
-        // Manual validation (deterministic)
-        if (!editContext.Validate())
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
+        var me = await UserManager.GetUserAsync(principal);
+
+        if (me is null)
         {
+            _busy = false;
             return;
         }
 
-        _submitting = true;
-
-        var user = await GetCurrentUserAsync();
-        if (user is null)
+        if (string.IsNullOrWhiteSpace(_model.Name) || string.IsNullOrWhiteSpace(_model.City) || string.IsNullOrWhiteSpace(_model.ContactEmail))
         {
-            _submitting = false;
+            _message = "Naziv, grad i kontakt email su obavezni.";
+            _busy = false;
             return;
         }
-
-        // Debug confirmation
-        Console.WriteLine($"SUBMIT OK: Name='{_model.Name}', City='{_model.City}', Email='{_model.ContactEmail}'");
 
         await OrgService.CreateRequestAsync(
-            user.Id,
-            _model.Name,
-            _model.City,
-            _model.ContactEmail,
-            _model.Description);
+            me.Id,
+            _model.Name.Trim(),
+            _model.City.Trim(),
+            _model.ContactEmail.Trim(),
+            string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description.Trim()
+        );
 
-        _existing = await OrgService.GetByOwnerUserIdAsync(user.Id);
+        _org = await OrgService.GetByOwnerUserIdAsync(me.Id);
 
-        _message = "Zahtjev je zaprimljen. Status je: Pending.";
-        _submitted = true;
-
-        _submitting = false;
+        _message = "Zahtjev je poslan. Čeka odobrenje admina.";
+        _busy = false;
     }
 
-    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    private void ResetForNewRequest()
     {
-        var authState = await AuthenticationStateTask;
-        var principal = authState.User;
-
-        if (principal?.Identity?.IsAuthenticated != true)
-            return null;
-
-        return await UserManager.GetUserAsync(principal);
+        _org = null;
+        _message = null;
+        _model = new Model();
+        _editContext = new EditContext(_model);
     }
 
-    private class RequestModel
+    private void OnNameChanged(ChangeEventArgs e) => _model.Name = e.Value?.ToString() ?? "";
+    private void OnCityChanged(ChangeEventArgs e) => _model.City = e.Value?.ToString() ?? "";
+    private void OnEmailChanged(ChangeEventArgs e) => _model.ContactEmail = e.Value?.ToString() ?? "";
+    private void OnDescriptionChanged(ChangeEventArgs e) => _model.Description = e.Value?.ToString();
+
+    private static string StatusBadge(OrganizationStatus st) => st switch
     {
-        [Display(Name = "Naziv")]
-        [Required(ErrorMessage = "Naziv je obavezan.")]
-        [StringLength(200, ErrorMessage = "Naziv može imati najviše {1} znakova.")]
-        public string Name { get; set; } = string.Empty;
+        OrganizationStatus.Pending => "bg-warning text-dark",
+        OrganizationStatus.Approved => "bg-success",
+        OrganizationStatus.Rejected => "bg-danger",
+        _ => "bg-secondary"
+    };
 
-        [Display(Name = "Grad")]
-        [Required(ErrorMessage = "Grad je obavezan.")]
-        [StringLength(120, ErrorMessage = "Grad može imati najviše {1} znakova.")]
-        public string City { get; set; } = string.Empty;
-
-        [Display(Name = "Kontakt email")]
-        [Required(ErrorMessage = "Kontakt email je obavezan.")]
-        [EmailAddress(ErrorMessage = "Unesi ispravnu email adresu.")]
-        [StringLength(256, ErrorMessage = "Email može imati najviše {1} znakova.")]
-        public string ContactEmail { get; set; } = string.Empty;
-
-        [Display(Name = "Opis")]
-        [StringLength(2000, ErrorMessage = "Opis može imati najviše {1} znakova.")]
+    private class Model
+    {
+        public string Name { get; set; } = "";
+        public string City { get; set; } = "";
+        public string ContactEmail { get; set; } = "";
         public string? Description { get; set; }
     }
 }

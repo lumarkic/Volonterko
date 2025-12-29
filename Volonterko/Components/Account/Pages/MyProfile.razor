@@ -1,0 +1,433 @@
+﻿@page "/me/profile"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Enums
+
+@inject ApplicationDbContext Db
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+
+@attribute [Authorize]
+
+<h3>Moj profil</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_isOrgUser)
+{
+    <div class="alert alert-warning">
+        Ovaj account je organizacijski. Volonterski profil nije dostupan za organizacijski account.
+        Ako želiš volontirati, koristi zaseban volonterski account.
+    </div>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+
+                        <!-- Avatar + identity -->
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle border d-flex align-items-center justify-content-center"
+                                 style="width:72px; height:72px; background:@_avatarBg; color:@_avatarFg; font-weight:700; font-size:22px;">
+                                @_initials
+                            </div>
+
+                            <div>
+                                <h5 class="card-title mb-1">@_displayName</h5>
+                                <div class="text-muted small">@_email</div>
+                            </div>
+                        </div>
+
+                        <!-- Badge -->
+                        <div class="text-end">
+                            <div class="small text-muted">Badge</div>
+                            <span class="badge @GetBadgeClass(_badge) fs-6">@_badge</span>
+                            <div class="text-muted small mt-1">
+                                @GetBadgeHint(_badge)
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr />
+
+                    <!-- Progress to next badge -->
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="text-muted small">Napredak prema sljedećem badge-u</div>
+                                <div class="fw-semibold">@_progressLabel</div>
+                            </div>
+                            <div class="text-muted small">
+                                @_attendedCount attended
+                            </div>
+                        </div>
+
+                        <div class="progress mt-2" style="height: 10px;">
+                            <div class="progress-bar"
+                                 role="progressbar"
+                                 style="width: @_progressPercent%;"
+                                 aria-valuenow="@_progressPercentInt"
+                                 aria-valuemin="0"
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+
+                        <div class="text-muted small mt-2">
+                            Sljedeći prag: <b>@_nextThresholdText</b>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="text-muted small">Odrađene akcije</div>
+                                    <div class="display-6">@_attendedCount</div>
+                                    <div class="text-muted small">Attended</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="text-muted small">Ukupno sati</div>
+                                    <div class="display-6">@_hoursTotal</div>
+                                    <div class="text-muted small">HoursAwarded</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <div class="text-muted small">Ukupno prijava</div>
+                                    <div class="display-6">@_totalSignups</div>
+                                    <div class="text-muted small">Sve prijave</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-3">
+                            <div class="text-muted small">Na čekanju</div>
+                            <div class="fw-semibold">@_countApplied</div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-muted small">Prihvaćeno</div>
+                            <div class="fw-semibold">@_countAccepted</div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-muted small">Odbijeno</div>
+                            <div class="fw-semibold">@_countRejected</div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-muted small">Otkazano</div>
+                            <div class="fw-semibold">@_countCancelled</div>
+                        </div>
+                    </div>
+
+                    @if (_lastAttended is not null)
+                    {
+                        <hr />
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="text-muted small">Zadnja odrađena akcija</div>
+                                <div class="fw-semibold">@_lastAttended.ActionTitle</div>
+                                <div class="text-muted small">
+                                    @_lastAttended.StartDateTime.ToString("yyyy-MM-dd HH:mm") • @_lastAttended.OrganizationName
+                                </div>
+                            </div>
+                            <a class="btn btn-outline-primary" href="@($"/actions/{_lastAttended.ActionId}")">Detalji</a>
+                        </div>
+                    }
+
+                    <hr />
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-primary" href="me/signups">Moje prijave</a>
+                        <a class="btn btn-outline-primary" href="actions">Pronađi akcije</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h6 class="mb-2">Kako se badge dodjeljuje</h6>
+                    <div class="text-muted small">
+                        Badge je baziran na broju odrađenih akcija (Attended).
+                        Organizator potvrđuje sudjelovanje i dodjeljuje sate nakon akcije.
+                    </div>
+
+                    <div class="mt-3">
+                        <div class="text-muted small">Trenutno</div>
+                        <div class="fw-semibold">@_attendedCount attended</div>
+                    </div>
+
+                    <div class="mt-3">
+                        <div class="text-muted small">Sljedeći prag</div>
+                        <div class="fw-semibold">@_nextThresholdText</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private bool _isOrgUser = false;
+
+    private string _displayName = "";
+    private string _email = "";
+
+    private int _totalSignups;
+    private int _countApplied;
+    private int _countAccepted;
+    private int _countRejected;
+    private int _countCancelled;
+
+    private int _attendedCount;
+    private decimal _hoursTotal;
+
+    private string _badge = "Newcomer";
+
+    private LastAttendedRow? _lastAttended;
+
+    // Avatar
+    private string _initials = "VP";
+    private string _avatarBg = "#f2f2f2";
+    private string _avatarFg = "#111";
+
+    // Progress
+    private double _progressPercent = 0;
+    private int _progressPercentInt = 0;
+    private string _progressLabel = "";
+    private string _nextThresholdText = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
+
+        _isOrgUser = principal.IsInRole(Roles.Organization);
+
+        var me = await UserManager.GetUserAsync(principal);
+        if (me is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _displayName = me.UserName ?? "User";
+        _email = me.Email ?? "";
+
+        BuildAvatar(_displayName, _email, me.Id);
+
+        if (!_isOrgUser)
+        {
+            await LoadStats(me.Id);
+            ComputeProgress(_attendedCount);
+        }
+
+        _loading = false;
+    }
+
+    private void BuildAvatar(string name, string email, string userId)
+    {
+        _initials = GetInitials(name, email);
+        _avatarBg = PickColor(userId + "|" + email);
+        _avatarFg = "#111";
+    }
+
+    private static string GetInitials(string name, string email)
+    {
+        var src = string.IsNullOrWhiteSpace(name) ? email : name;
+        src = (src ?? "").Trim();
+
+        if (string.IsNullOrWhiteSpace(src))
+            return "VP";
+
+        var parts = src.Split(new[] { ' ', '.', '_', '-', '@' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1)
+        {
+            var p = parts[0];
+            return p.Length >= 2 ? p.Substring(0, 2).ToUpperInvariant() : p.ToUpperInvariant();
+        }
+
+        var a = parts[0].Substring(0, 1);
+        var b = parts[1].Substring(0, 1);
+        return (a + b).ToUpperInvariant();
+    }
+
+    private static string PickColor(string key)
+    {
+        string[] palette =
+        {
+            "#FDE68A", // amber
+            "#BFDBFE", // blue
+            "#BBF7D0", // green
+            "#FBCFE8", // pink
+            "#DDD6FE", // violet
+            "#FED7AA", // orange
+            "#A7F3D0", // emerald
+            "#C7D2FE"  // indigo
+        };
+
+        unchecked
+        {
+            int hash = 23;
+            foreach (var ch in key)
+                hash = (hash * 31) + ch;
+
+            var idx = Math.Abs(hash) % palette.Length;
+            return palette[idx];
+        }
+    }
+
+    private async Task LoadStats(string userId)
+    {
+        _totalSignups = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId);
+        _countApplied = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId && s.Status == SignupStatus.Applied);
+        _countAccepted = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId && s.Status == SignupStatus.Accepted);
+        _countRejected = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId && s.Status == SignupStatus.Rejected);
+        _countCancelled = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId && s.Status == SignupStatus.Cancelled);
+
+        _attendedCount = await Db.Signups.AsNoTracking().CountAsync(s => s.UserId == userId && s.Status == SignupStatus.Attended);
+
+        _hoursTotal = await Db.Signups.AsNoTracking()
+            .Where(s => s.UserId == userId && s.Status == SignupStatus.Attended && s.HoursAwarded != null)
+            .SumAsync(s => s.HoursAwarded ?? 0m);
+
+        _badge = ComputeBadge(_attendedCount);
+
+        _lastAttended = await Db.Signups
+            .AsNoTracking()
+            .Include(s => s.VolunteerAction)
+            .ThenInclude(a => a.Organization)
+            .Where(s => s.UserId == userId && s.Status == SignupStatus.Attended)
+            .OrderByDescending(s => s.CreatedAt)
+            .Select(s => new LastAttendedRow
+            {
+                ActionId = s.VolunteerActionId,
+                ActionTitle = s.VolunteerAction.Title,
+                StartDateTime = s.VolunteerAction.StartDateTime,
+                OrganizationName = s.VolunteerAction.Organization.Name
+            })
+            .FirstOrDefaultAsync();
+    }
+
+    private static string ComputeBadge(int attendedCount)
+    {
+        if (attendedCount <= 0) return "Newcomer";
+        if (attendedCount <= 2) return "Beginner";
+        if (attendedCount <= 5) return "Helper";
+        if (attendedCount <= 10) return "Regular";
+        return "Champion";
+    }
+
+    private void ComputeProgress(int attendedCount)
+    {
+        // thresholds: 0, 1, 3, 6, 11
+        // badge segments:
+        // Newcomer: 0 -> 1
+        // Beginner: 1 -> 3
+        // Helper:   3 -> 6
+        // Regular:  6 -> 11
+        // Champion: 11+ (full)
+
+        int currentMin;
+        int nextTarget;
+        string nextLabel;
+
+        if (attendedCount <= 0)
+        {
+            currentMin = 0;
+            nextTarget = 1;
+            nextLabel = "1 odrađena akcija → Beginner";
+        }
+        else if (attendedCount <= 2)
+        {
+            currentMin = 1;
+            nextTarget = 3;
+            nextLabel = "3 odrađene akcije → Helper";
+        }
+        else if (attendedCount <= 5)
+        {
+            currentMin = 3;
+            nextTarget = 6;
+            nextLabel = "6 odrađenih akcija → Regular";
+        }
+        else if (attendedCount <= 10)
+        {
+            currentMin = 6;
+            nextTarget = 11;
+            nextLabel = "11 odrađenih akcija → Champion";
+        }
+        else
+        {
+            // champion
+            _progressPercent = 100;
+            _progressPercentInt = 100;
+            _progressLabel = "Champion – maksimalni badge";
+            _nextThresholdText = "Nema sljedećeg praga.";
+            return;
+        }
+
+        var span = nextTarget - currentMin;
+        var progressed = Math.Max(0, attendedCount - currentMin);
+        var pct = span <= 0 ? 0 : (progressed * 100.0 / span);
+
+        if (pct < 0) pct = 0;
+        if (pct > 100) pct = 100;
+
+        _progressPercent = pct;
+        _progressPercentInt = (int)Math.Round(pct);
+
+        _progressLabel = $"{progressed} / {span} do sljedećeg badge-a";
+        _nextThresholdText = nextLabel;
+    }
+
+    private static string GetBadgeClass(string badge) => badge switch
+    {
+        "Newcomer" => "bg-secondary",
+        "Beginner" => "bg-primary",
+        "Helper" => "bg-success",
+        "Regular" => "bg-warning text-dark",
+        "Champion" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private static string GetBadgeHint(string badge) => badge switch
+    {
+        "Newcomer" => "Kreni s prvom akcijom.",
+        "Beginner" => "Prvih par koraka – samo nastavi.",
+        "Helper" => "Stalno pomažeš i vidi se napredak.",
+        "Regular" => "Redovito volontiranje – svaka čast.",
+        "Champion" => "Veliki doprinos zajednici.",
+        _ => ""
+    };
+
+    private class LastAttendedRow
+    {
+        public int ActionId { get; set; }
+        public string ActionTitle { get; set; } = "";
+        public DateTime StartDateTime { get; set; }
+        public string OrganizationName { get; set; } = "";
+    }
+}

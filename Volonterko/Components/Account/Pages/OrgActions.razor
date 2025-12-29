@@ -4,13 +4,15 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
 @using Volonterko.Data
 @using Volonterko.Domain.Constants
 @using Volonterko.Domain.Enums
+@using Volonterko.Domain.Entities
 
+@inject ApplicationDbContext Db
 @inject UserManager<ApplicationUser> UserManager
 @inject Volonterko.Services.OrganizationService OrgService
-@inject Volonterko.Services.VolunteerActionService ActionService
 @inject NavigationManager NavigationManager
 
 @attribute [Authorize(Roles = Roles.Organization)]
@@ -27,103 +29,97 @@ else if (_org is null)
 }
 else
 {
-    <div class="mb-3">
-        <button class="btn btn-primary" @onclick="GoNew">Nova akcija</button>
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Filter</label>
+                    <select class="form-select" value="@_filter" @onchange="OnFilterChanged">
+                        <option value="@OrgActionFilter.Upcoming">Upcoming</option>
+                        <option value="@OrgActionFilter.Past">Past</option>
+                        <option value="@OrgActionFilter.All">All</option>
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" value="@_statusFilter" @onchange="OnStatusChanged">
+                        <option value="@StatusFilter.All">All</option>
+                        <option value="@StatusFilter.Published">Published</option>
+                        <option value="@StatusFilter.Draft">Draft</option>
+                    </select>
+                </div>
+
+                <div class="col-md-4 d-flex justify-content-end gap-2">
+                    <a class="btn btn-primary" href="org/actions/new">Nova akcija</a>
+                    <button class="btn btn-outline-primary" @onclick="Reload">Osvježi</button>
+                </div>
+            </div>
+
+            <div class="text-muted small mt-3">
+                Ukupno: <b>@_rows.Count</b>
+            </div>
+        </div>
     </div>
 
-    if (_actions.Count == 0)
+    @if (_rows.Count == 0)
     {
-        <div class="alert alert-secondary">Trenutno nema akcija.</div>
+        <div class="alert alert-secondary">Nema akcija za odabrani filter.</div>
     }
     else
     {
-        <table class="table table-striped">
-            <thead>
-                <tr>
-                    <th>Naziv</th>
-                    <th>Grad</th>
-                    <th>Početak</th>
-                    <th>Status</th>
-                    <th class="text-end"></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var a in _actions)
-                {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+                <thead>
                     <tr>
-                        <td>@a.Title</td>
-                        <td>@a.City</td>
-                        <td>@a.StartDateTime.ToString("yyyy-MM-dd HH:mm")</td>
-                        <td>
-                            @if (a.Status == VolunteerActionStatus.Draft)
-                            {
-                                <span class="badge bg-secondary">Draft</span>
-                            }
-                            else if (a.Status == VolunteerActionStatus.Published)
-                            {
-                                <span class="badge bg-success">Published</span>
-                            }
-                            else if (a.Status == VolunteerActionStatus.Completed)
-                            {
-                                <span class="badge bg-primary">Completed</span>
-                            }
-                            else if (a.Status == VolunteerActionStatus.Cancelled)
-                            {
-                                <span class="badge bg-danger">Cancelled</span>
-                            }
-                            else
-                            {
-                                <span class="badge bg-dark">@a.Status</span>
-                            }
-                        </td>
-
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary me-2"
-                                    @onclick="() => GoEdit(a.Id)">
-                                Detalji
-                            </button>
-
-                            <button class="btn btn-sm btn-outline-secondary me-2"
-                                    @onclick="() => GoEdit(a.Id)"
-                                    disabled="@(a.Status != VolunteerActionStatus.Draft)">
-                                Uredi
-                            </button>
-
-                            @if (a.Status == VolunteerActionStatus.Draft)
-                            {
-                                <button class="btn btn-sm btn-success me-2" @onclick="() => Publish(a.Id)">Publish</button>
-                            }
-                            else if (a.Status == VolunteerActionStatus.Published)
-                            {
-                                <button class="btn btn-sm btn-warning me-2" @onclick="() => Unpublish(a.Id)">Unpublish</button>
-                            }
-
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => AskDelete(a.Id)">Obriši</button>
-                        </td>
+                        <th>Naziv</th>
+                        <th>Početak</th>
+                        <th>Status</th>
+                        <th class="text-center">Pending</th>
+                        <th class="text-end">Akcije</th>
                     </tr>
-
-                    @if (_confirmDeleteId == a.Id)
+                </thead>
+                <tbody>
+                    @foreach (var a in _rows)
                     {
-                        <tr>
-                            <td colspan="5">
-                                <div class="alert alert-warning mb-0 d-flex justify-content-between align-items-center">
-                                    <div>Sigurno želiš obrisati akciju <b>@a.Title</b>?</div>
-                                    <div>
-                                        <button class="btn btn-sm btn-danger me-2" @onclick="() => ConfirmDelete(a.Id)">Da, obriši</button>
-                                        <button class="btn btn-sm btn-secondary" @onclick="CancelDelete">Odustani</button>
-                                    </div>
+                        <tr class="@GetActionRowClass(a.StartDateTime, a.EndDateTime)">
+                            <td>
+                                <div class="fw-semibold">@a.Title</div>
+                                <div class="small text-muted">@a.City</div>
+                            </td>
+
+                            <td>
+                                <div>@a.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                <div class="small text-muted">@GetWhenText(a.StartDateTime, a.EndDateTime)</div>
+                            </td>
+
+                            <td>
+                                <span class="badge @StatusBadge(a.Status)">@a.Status</span>
+                            </td>
+
+                            <td class="text-center">
+                                @if (a.PendingCount > 0)
+                                {
+                                    <span class="badge bg-warning text-dark">@a.PendingCount</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">0</span>
+                                }
+                            </td>
+
+                            <td class="text-end">
+                                <div class="d-inline-flex flex-wrap gap-2 justify-content-end">
+                                    <a class="btn btn-sm btn-outline-primary" href="@($"/org/actions/edit/{a.Id}")">Uredi</a>
+                                    <a class="btn btn-sm btn-outline-secondary" href="@($"/org/actions/{a.Id}/signups")">Prijave</a>
+                                    <a class="btn btn-sm btn-outline-success" href="@($"/actions/{a.Id}")">Public</a>
                                 </div>
                             </td>
                         </tr>
                     }
-                }
-            </tbody>
-        </table>
-    }
-
-    @if (!string.IsNullOrWhiteSpace(_message))
-    {
-        <div class="alert alert-info">@_message</div>
+                </tbody>
+            </table>
+        </div>
     }
 }
 
@@ -131,84 +127,151 @@ else
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private bool _loading = true;
-    private string? _message;
 
-    private int? _confirmDeleteId = null;
+    private Organization? _org;
 
-    private Volonterko.Domain.Entities.Organization? _org;
-    private List<Volonterko.Domain.Entities.VolunteerAction> _actions = new();
+    private OrgActionFilter _filter = OrgActionFilter.Upcoming;
+    private StatusFilter _statusFilter = StatusFilter.All;
+
+    private List<Row> _rows = new();
 
     protected override async Task OnInitializedAsync()
     {
+        await Reload();
+        _loading = false;
+    }
+
+    private async Task OnFilterChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<OrgActionFilter>(e.Value?.ToString(), out var f))
+            _filter = f;
+
+        await Reload();
+    }
+
+    private async Task OnStatusChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<StatusFilter>(e.Value?.ToString(), out var f))
+            _statusFilter = f;
+
         await Reload();
     }
 
     private async Task Reload()
     {
-        _loading = true;
-        _message = null;
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
 
-        var user = await GetCurrentUserAsync();
-        if (user is null)
+        var me = await UserManager.GetUserAsync(principal);
+        if (me is null)
         {
-            _loading = false;
+            _rows = new();
             return;
         }
 
-        _org = await OrgService.GetByOwnerUserIdAsync(user.Id);
-        if (_org is not null)
-            _actions = await ActionService.GetForOrganizationAsync(_org.Id);
-
-        _loading = false;
-    }
-
-    private void GoNew() => NavigationManager.NavigateTo("/org/actions/new");
-
-    private void GoEdit(int id) => NavigationManager.NavigateTo("/org/actions/edit/" + id);
-
-    private async Task Publish(int id)
-    {
-        await ActionService.SetStatusAsync(id, VolunteerActionStatus.Published);
-        _message = "Akcija je objavljena.";
-        await Reload();
-    }
-
-    private async Task Unpublish(int id)
-    {
-        await ActionService.SetStatusAsync(id, VolunteerActionStatus.Draft);
-        _message = "Akcija je vraćena u Draft.";
-        await Reload();
-    }
-
-    private void AskDelete(int id) => _confirmDeleteId = id;
-
-    private void CancelDelete() => _confirmDeleteId = null;
-
-    private async Task ConfirmDelete(int id)
-    {
-        _confirmDeleteId = null;
-        await Delete(id);
-    }
-    private async Task Delete(int id)
-    {
-        var ok = await ActionService.DeleteAsync(id);
-
-        if (!ok)
+        _org = await OrgService.GetByOwnerUserIdAsync(me.Id);
+        if (_org is null)
         {
-            _message = "Ne možeš obrisati akciju jer već postoje prijave (povijest/sati bi se izgubili).";
+            _rows = new();
             return;
         }
 
-        _message = "Akcija je obrisana.";
-        await Reload();
+        var now = DateTime.Now;
+
+        var q = Db.VolunteerActions
+            .AsNoTracking()
+            .Where(a => a.OrganizationId == _org.Id);
+
+        // filter upcoming/past
+        q = _filter switch
+        {
+            OrgActionFilter.Upcoming => q.Where(a => a.EndDateTime >= now),
+            OrgActionFilter.Past => q.Where(a => a.EndDateTime < now),
+            _ => q
+        };
+
+        // status filter
+        q = _statusFilter switch
+        {
+            StatusFilter.Published => q.Where(a => a.Status == VolunteerActionStatus.Published),
+            StatusFilter.Draft => q.Where(a => a.Status == VolunteerActionStatus.Draft),
+            _ => q
+        };
+
+        // sorting
+        q = _filter switch
+        {
+            OrgActionFilter.Past => q.OrderByDescending(a => a.StartDateTime),
+            _ => q.OrderBy(a => a.StartDateTime)
+        };
+
+        _rows = await q
+            .Select(a => new Row
+            {
+                Id = a.Id,
+                Title = a.Title,
+                City = a.City,
+                StartDateTime = a.StartDateTime,
+                EndDateTime = a.EndDateTime,
+                Status = a.Status,
+
+                PendingCount = Db.Signups.Count(s => s.VolunteerActionId == a.Id && s.Status == SignupStatus.Applied)
+            })
+            .ToListAsync();
     }
 
-
-    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    private static string StatusBadge(VolunteerActionStatus st) => st switch
     {
-        var authState = await AuthenticationStateTask;
-        var principal = authState.User;
-        if (principal?.Identity?.IsAuthenticated != true) return null;
-        return await UserManager.GetUserAsync(principal);
+        VolunteerActionStatus.Published => "bg-success",
+        VolunteerActionStatus.Draft => "bg-secondary",
+        _ => "bg-secondary"
+    };
+
+    private static string GetWhenText(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+        if (now >= start && now <= end) return "U tijeku";
+        if (start.Date == now.Date) return "Danas";
+        if (start.Date == now.Date.AddDays(1)) return "Sutra";
+
+        var days = (start.Date - now.Date).Days;
+        if (days > 1 && days <= 14) return $"Za {days} dana";
+
+        if (end < now) return "Prošlo";
+        return start.ToString("yyyy-MM-dd");
+    }
+
+    private static string GetActionRowClass(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+        if (now >= start && now <= end) return "table-danger";
+        if (start.Date == now.Date) return "table-warning";
+        if (start <= now.AddDays(2)) return "table-warning";
+        return "";
+    }
+
+    private enum OrgActionFilter
+    {
+        Upcoming,
+        Past,
+        All
+    }
+
+    private enum StatusFilter
+    {
+        All,
+        Published,
+        Draft
+    }
+
+    private class Row
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public string City { get; set; } = "";
+        public DateTime StartDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+        public VolunteerActionStatus Status { get; set; }
+        public int PendingCount { get; set; }
     }
 }

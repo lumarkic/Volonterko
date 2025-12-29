@@ -22,6 +22,9 @@ public class VolunteerAction
 
     public VolunteerActionStatus Status { get; set; } = VolunteerActionStatus.Draft;
 
+    // ✅ NEW: optional image for action (relative URL under wwwroot, e.g. "uploads/actions/..png")
+    public string? ImageUrl { get; set; }
+
     public List<Signup> Signups { get; set; } = new();
     public List<VolunteerActionTag> ActionTags { get; set; } = new();
 }

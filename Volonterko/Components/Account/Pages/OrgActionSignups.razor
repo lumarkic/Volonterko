@@ -7,12 +7,12 @@
 @using Microsoft.EntityFrameworkCore
 @using Volonterko.Data
 @using Volonterko.Domain.Constants
+@using Volonterko.Domain.Entities
 @using Volonterko.Domain.Enums
 
-@inject UserManager<ApplicationUser> UserManager
 @inject ApplicationDbContext Db
+@inject UserManager<ApplicationUser> UserManager
 @inject Volonterko.Services.OrganizationService OrgService
-@inject Volonterko.Services.VolunteerActionService ActionService
 @inject Volonterko.Services.SignupService SignupService
 @inject NavigationManager NavigationManager
 
@@ -34,105 +34,215 @@ else if (_action is null)
 }
 else if (_action.OrganizationId != _org.Id)
 {
-    <div class="alert alert-danger">Nemaš pravo gledati prijave za ovu akciju.</div>
+    <div class="alert alert-danger">Nemaš pravo pristupa prijavama za ovu akciju.</div>
 }
 else
 {
-    <div class="mb-3">
-        <button class="btn btn-secondary" type="button" @onclick="BackToEdit">Natrag na akciju</button>
+    <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+        <button class="btn btn-secondary" type="button" @onclick="BackToEdit">Natrag na uređivanje</button>
+        <button class="btn btn-outline-primary" type="button" @onclick="Reload" disabled="@_busy">Osvježi</button>
+
+        <div class="ms-auto d-flex gap-2 align-items-center text-muted small">
+            <span><b>@_action.Title</b></span>
+            <span>•</span>
+            <span>@_action.StartDateTime.ToString("yyyy-MM-dd HH:mm")</span>
+            <span>•</span>
+            <span>@_action.City</span>
+        </div>
     </div>
 
+    <!-- ✅ Automatic status (visual) -->
     <div class="alert alert-info">
-        <div><b>Akcija:</b> @_action.Title</div>
-        <div><b>Status:</b> @_action.Status</div>
-        <div><b>Početak:</b> @_action.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
-    </div>
-
-    @if (_rows.Count == 0)
-    {
-        <div class="alert alert-secondary">Nema prijava.</div>
-    }
-    else
-    {
-        <table class="table table-striped align-middle">
-            <thead>
-                <tr>
-                    <th>Korisnik</th>
-                    <th>Email</th>
-                    <th>Vrijeme prijave</th>
-                    <th>Status</th>
-                    <th>Sati</th>
-                    <th class="text-end"></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var r in _rows)
-                {
-                    <tr>
-                        <td>@r.UserName</td>
-                        <td>@r.Email</td>
-                        <td>@r.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
-                        <td>@r.Status</td>
-                        <td>@(r.HoursAwarded?.ToString("0.##") ?? "")</td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-success me-2"
-                                    @onclick="() => SetStatus(r.SignupId, SignupStatus.Accepted)"
-                                    disabled="@_busy">
-                                Accept
-                            </button>
-
-                            <button class="btn btn-sm btn-danger me-2"
-                                    @onclick="() => SetStatus(r.SignupId, SignupStatus.Rejected)"
-                                    disabled="@_busy">
-                                Reject
-                            </button>
-
-                            <button class="btn btn-sm btn-outline-primary"
-                                    @onclick="() => OpenAttend(r.SignupId)"
-                                    disabled="@_busy">
-                                Attended
-                            </button>
-                        </td>
-                    </tr>
-
-                    @if (_attendSignupId == r.SignupId)
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <div><b>ID:</b> @_action.Id</div>
+                <div><b>Status (DB):</b> @_action.Status</div>
+                <div>
+                    <b>Auto status:</b>
+                    @if (_actionEnded)
                     {
-                        <tr>
-                            <td colspan="6">
-                                <div class="alert alert-warning mb-0 d-flex justify-content-between align-items-center">
-                                    <div class="d-flex align-items-center">
-                                        <span class="me-2">Upiši sate:</span>
-                                        <input class="form-control form-control-sm"
-                                               style="width: 120px;"
-                                               @bind-value="_attendHoursText"
-                                               @bind-value:event="oninput"
-                                               placeholder="npr. 2.5" />
-                                    </div>
-
-                                    <div>
-                                        <button class="btn btn-sm btn-primary me-2"
-                                                @onclick="ConfirmAttend"
-                                                disabled="@_busy">
-                                            Spremi
-                                        </button>
-                                        <button class="btn btn-sm btn-secondary"
-                                                @onclick="CancelAttend"
-                                                disabled="@_busy">
-                                            Odustani
-                                        </button>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
+                        <span class="badge bg-secondary">Završeno</span>
                     }
-                }
-            </tbody>
-        </table>
-    }
+                    else if (_actionOngoing)
+                    {
+                        <span class="badge bg-danger">U tijeku</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-warning text-dark">Uskoro</span>
+                    }
+                </div>
+            </div>
+
+            <div class="text-muted small">
+                <div><b>Početak:</b> @_action.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                <div><b>Kraj:</b> @_action.EndDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+            </div>
+        </div>
+
+        @if (!_actionEnded)
+        {
+            <hr />
+            <div class="mb-0">
+                Sate je moguće dodijeliti tek <b>nakon završetka akcije</b>.
+                Do tada su “Attended” i unos sati onemogućeni.
+            </div>
+        }
+    </div>
 
     @if (!string.IsNullOrWhiteSpace(_message))
     {
         <div class="alert alert-info">@_message</div>
+    }
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Ukupno prijava</div>
+                    <div class="display-6">@_signups.Count</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Na čekanju (Applied)</div>
+                    <div class="display-6">@_countApplied</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Prihvaćeni (Accepted)</div>
+                    <div class="display-6">@_countAccepted</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Odrađeni (Attended)</div>
+                    <div class="display-6">@_countAttended</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_signups.Count == 0)
+    {
+        <div class="alert alert-secondary">Trenutno nema prijava za ovu akciju.</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Volonter</th>
+                        <th>Status</th>
+                        <th class="text-center">Sati</th>
+                        <th>Prijava</th>
+                        <th class="text-end">Akcije</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in _signups)
+                    {
+                        var u = _userById.TryGetValue(s.UserId, out var usr) ? usr : null;
+
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">@((u?.UserName) ?? "(nepoznat)")</div>
+                                <div class="small text-muted">@((u?.Email) ?? s.UserId)</div>
+                            </td>
+
+                            <td>
+                                <span class="badge @GetSignupBadgeClass(s.Status)">
+                                    @GetSignupStatusLabel(s.Status)
+                                </span>
+                            </td>
+
+                            <td class="text-center">
+                                @if (s.Status == SignupStatus.Attended && s.HoursAwarded is not null)
+                                {
+                                    <span class="fw-semibold">@s.HoursAwarded</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+
+                            <td>
+                                <div class="small text-muted">
+                                    @s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                                </div>
+                            </td>
+
+                            <td class="text-end">
+                                <div class="d-inline-flex flex-wrap gap-2 justify-content-end">
+
+                                    @if (s.Status == SignupStatus.Applied)
+                                    {
+                                        <button class="btn btn-sm btn-success"
+                                                @onclick="() => SetStatus(s.Id, SignupStatus.Accepted)"
+                                                disabled="@_busy">
+                                            Accept
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => SetStatus(s.Id, SignupStatus.Rejected)"
+                                                disabled="@_busy">
+                                            Reject
+                                        </button>
+                                    }
+
+                                    @if (s.Status == SignupStatus.Accepted)
+                                    {
+                                        <!-- ✅ Disable attended/hours until action ended -->
+                                        <div class="input-group input-group-sm" style="width: 170px;">
+                                            <span class="input-group-text">h</span>
+                                            <input class="form-control"
+                                                   placeholder="npr. 2"
+                                                   value="@GetHoursInput(s.Id)"
+                                                   @oninput="e => SetHoursInput(s.Id, e.Value?.ToString())"
+                                                   disabled="@(_busy || !_actionEnded)" />
+                                            <button class="btn btn-primary"
+                                                    type="button"
+                                                    @onclick="() => MarkAttended(s.Id)"
+                                                    disabled="@(_busy || !_actionEnded)"
+                                                    title="@(!_actionEnded ? "Sate je moguće dodijeliti tek nakon završetka akcije." : "")">
+                                                Attended
+                                            </button>
+                                        </div>
+
+                                        <button class="btn btn-sm btn-outline-warning"
+                                                @onclick="() => SetStatus(s.Id, SignupStatus.NoShow)"
+                                                disabled="@_busy">
+                                            No-show
+                                        </button>
+                                    }
+
+                                    @if (s.Status != SignupStatus.Cancelled)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                                @onclick="() => SetStatus(s.Id, SignupStatus.Cancelled)"
+                                                disabled="@_busy">
+                                            Cancel
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="text-muted small mt-2">
+            “Attended” i sati su dopušteni tek nakon što akcija završi.
+        </div>
     }
 }
 
@@ -143,42 +253,47 @@ else
 
     private bool _loading = true;
     private bool _busy = false;
+
     private string? _message;
 
-    private Volonterko.Domain.Entities.Organization? _org;
-    private Volonterko.Domain.Entities.VolunteerAction? _action;
+    private Organization? _org;
+    private VolunteerAction? _action;
 
-    private List<Row> _rows = new();
+    private bool _actionEnded = false;
+    private bool _actionOngoing = false;
 
-    // Attend UI state
-    private int? _attendSignupId = null;
-    private string _attendHoursText = "1.0";
+    private List<Signup> _signups = new();
+
+    private Dictionary<string, ApplicationUser> _userById = new();
+
+    private Dictionary<int, string> _hoursInput = new();
+
+    private int _countApplied;
+    private int _countAccepted;
+    private int _countAttended;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadAsync();
+        await LoadAll();
     }
 
-    private void BackToEdit()
-    {
-        NavigationManager.NavigateTo("/org/actions/edit/" + ActionId);
-    }
-
-    private async Task LoadAsync()
+    private async Task LoadAll()
     {
         _loading = true;
         _message = null;
-        _rows.Clear();
 
-        var user = await GetCurrentUserAsync();
-        if (user is null)
+        var me = await GetCurrentUserAsync();
+        if (me is null)
         {
             _loading = false;
             return;
         }
 
-        _org = await OrgService.GetByOwnerUserIdAsync(user.Id);
-        _action = await ActionService.GetByIdAsync(ActionId);
+        _org = await OrgService.GetByOwnerUserIdAsync(me.Id);
+
+        _action = await Db.VolunteerActions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == ActionId);
 
         if (_org is null || _action is null)
         {
@@ -186,34 +301,43 @@ else
             return;
         }
 
-        var signups = await SignupService.GetSignupsForActionAsync(ActionId);
-
-        var userIds = signups.Select(s => s.UserId).Distinct().ToList();
-        var users = await Db.Users
-            .AsNoTracking()
-            .Where(u => userIds.Contains(u.Id))
-            .Select(u => new { u.Id, u.UserName, u.Email })
-            .ToListAsync();
-
-        var userMap = users.ToDictionary(x => x.Id, x => x);
-
-        foreach (var s in signups)
+        if (_action.OrganizationId != _org.Id)
         {
-            userMap.TryGetValue(s.UserId, out var u);
-
-            _rows.Add(new Row
-            {
-                SignupId = s.Id,
-                UserId = s.UserId,
-                UserName = u?.UserName ?? s.UserId,
-                Email = u?.Email ?? "",
-                Status = s.Status,
-                CreatedAt = s.CreatedAt,
-                HoursAwarded = s.HoursAwarded
-            });
+            _loading = false;
+            return;
         }
 
+        var now = DateTime.Now;
+        _actionEnded = _action.EndDateTime <= now;
+        _actionOngoing = now >= _action.StartDateTime && now <= _action.EndDateTime;
+
+        _signups = await Db.Signups
+            .AsNoTracking()
+            .Where(s => s.VolunteerActionId == ActionId)
+            .OrderByDescending(s => s.CreatedAt)
+            .ToListAsync();
+
+        var userIds = _signups.Select(s => s.UserId).Distinct().ToList();
+        _userById = await Db.Users
+            .AsNoTracking()
+            .Where(u => userIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id);
+
+        _countApplied = _signups.Count(x => x.Status == SignupStatus.Applied);
+        _countAccepted = _signups.Count(x => x.Status == SignupStatus.Accepted);
+        _countAttended = _signups.Count(x => x.Status == SignupStatus.Attended);
+
         _loading = false;
+    }
+
+    private async Task Reload()
+    {
+        await LoadAll();
+    }
+
+    private void BackToEdit()
+    {
+        NavigationManager.NavigateTo($"/org/actions/edit/{ActionId}");
     }
 
     private async Task SetStatus(int signupId, SignupStatus status)
@@ -222,52 +346,60 @@ else
         _message = null;
 
         var ok = await SignupService.SetStatusAsync(signupId, status);
-        _message = ok ? $"Status promijenjen u: {status}" : "Greška pri spremanju.";
+        _message = ok ? "Status ažuriran." : "Promjena statusa nije uspjela.";
 
         _busy = false;
-        await LoadAsync();
+        await LoadAll();
     }
 
-    private void OpenAttend(int signupId)
+    private async Task MarkAttended(int signupId)
     {
-        _attendSignupId = signupId;
-        _attendHoursText = "1.0";
-        _message = null;
-    }
-
-    private void CancelAttend()
-    {
-        _attendSignupId = null;
-        _message = null;
-    }
-
-    private async Task ConfirmAttend()
-    {
-        if (_attendSignupId is null) return;
-
-        if (!decimal.TryParse(_attendHoursText.Replace(',', '.'), System.Globalization.NumberStyles.Any,
-                             System.Globalization.CultureInfo.InvariantCulture, out var hours))
-        {
-            _message = "Neispravan format sati (npr. 2.5).";
-            return;
-        }
-
-        if (hours <= 0)
-        {
-            _message = "Sati moraju biti veći od 0.";
-            return;
-        }
-
         _busy = true;
         _message = null;
 
-        var ok = await SignupService.MarkAttendedAsync(_attendSignupId.Value, hours);
-        _message = ok ? "Označeno kao Attended i sati su spremljeni." : "Nije moguće označiti (provjeri status).";
+        if (!_actionEnded)
+        {
+            _message = "Sate je moguće dodijeliti tek nakon završetka akcije.";
+            _busy = false;
+            return;
+        }
+
+        var input = GetHoursInput(signupId);
+        if (!decimal.TryParse(input, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var hours))
+        {
+            if (!decimal.TryParse(input, out hours))
+            {
+                _message = "Neispravan unos sati (npr. 2 ili 2.5).";
+                _busy = false;
+                return;
+            }
+        }
+
+        if (hours <= 0 || hours > 24)
+        {
+            _message = "Sati moraju biti između 0 i 24.";
+            _busy = false;
+            return;
+        }
+
+        var ok = await SignupService.MarkAttendedAsync(signupId, hours);
+        _message = ok ? "Označeno kao Attended." : "Nije uspjelo označiti Attended.";
 
         _busy = false;
-        _attendSignupId = null;
+        await LoadAll();
+    }
 
-        await LoadAsync();
+    private string GetHoursInput(int signupId)
+    {
+        if (_hoursInput.TryGetValue(signupId, out var v) && !string.IsNullOrWhiteSpace(v))
+            return v;
+
+        return "2";
+    }
+
+    private void SetHoursInput(int signupId, string? value)
+    {
+        _hoursInput[signupId] = value ?? "";
     }
 
     private async Task<ApplicationUser?> GetCurrentUserAsync()
@@ -281,14 +413,25 @@ else
         return await UserManager.GetUserAsync(principal);
     }
 
-    private class Row
+    private static string GetSignupStatusLabel(SignupStatus st) => st switch
     {
-        public int SignupId { get; set; }
-        public string UserId { get; set; } = "";
-        public string UserName { get; set; } = "";
-        public string Email { get; set; } = "";
-        public DateTime CreatedAt { get; set; }
-        public SignupStatus Status { get; set; }
-        public decimal? HoursAwarded { get; set; }
-    }
+        SignupStatus.Applied => "Na čekanju",
+        SignupStatus.Accepted => "Prihvaćen",
+        SignupStatus.Rejected => "Odbijen",
+        SignupStatus.Attended => "Odrađeno",
+        SignupStatus.NoShow => "No-show",
+        SignupStatus.Cancelled => "Otkazano",
+        _ => st.ToString()
+    };
+
+    private static string GetSignupBadgeClass(SignupStatus st) => st switch
+    {
+        SignupStatus.Applied => "bg-secondary",
+        SignupStatus.Accepted => "bg-success",
+        SignupStatus.Attended => "bg-primary",
+        SignupStatus.Rejected => "bg-danger",
+        SignupStatus.Cancelled => "bg-light text-dark border",
+        SignupStatus.NoShow => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
 }

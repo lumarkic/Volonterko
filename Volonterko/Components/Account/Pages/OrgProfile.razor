@@ -1,0 +1,233 @@
+﻿@page "/org/profile"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Entities
+@using Volonterko.Domain.Enums
+
+@inject UserManager<ApplicationUser> UserManager
+@inject Volonterko.Services.OrganizationService OrgService
+@inject NavigationManager NavigationManager
+
+@attribute [Authorize(Roles = Roles.Organization)]
+
+<h3>Profil organizacije</h3>
+
+@if (_loading)
+{
+    <p>Učitavanje...</p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning">Nema organizacije vezane uz ovaj račun.</div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Logo</h5>
+
+                    <div class="ratio ratio-1x1 rounded overflow-hidden border mb-2">
+                        <img src="@GetOrgLogo(_org.LogoUrl)"
+                             alt="Logo organizacije"
+                             style="width:100%; height:100%; object-fit:cover;" />
+                    </div>
+
+                    <form method="post" enctype="multipart/form-data" action="/api/org/logo">
+                        <input type="file"
+                               name="file"
+                               class="form-control"
+                               accept="image/png,image/jpeg" />
+
+                        <button type="submit" class="btn btn-outline-primary mt-2" disabled="@_busy">
+                            Upload logo
+                        </button>
+
+                        <div class="text-muted small mt-2">PNG/JPG, max 2 MB.</div>
+                    </form>
+
+                    @if (!string.IsNullOrWhiteSpace(_logoMessage))
+                    {
+                        <div class="alert alert-info mt-3 mb-0">@_logoMessage</div>
+                    }
+
+                    <hr />
+
+                    <div class="text-muted small">
+                        <div><b>Status:</b> @_org.Status</div>
+                        <div><b>ID:</b> @_org.Id</div>
+                    </div>
+
+                    <div class="mt-3 d-grid gap-2">
+                        <a class="btn btn-outline-primary" href="@($"/org/{_org.Id}")">Javni profil</a>
+                        <a class="btn btn-outline-secondary" href="org/actions">Moje akcije</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">Podaci organizacije</h5>
+
+                    <EditForm EditContext="_editContext" OnSubmit="Save" FormName="OrgProfileForm">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+
+                        <div class="mb-3">
+                            <label class="form-label">Naziv</label>
+                            <input class="form-control" value="@_model.Name" disabled />
+                            
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Grad</label>
+                            <input class="form-control" value="@_model.City" @oninput="OnCityChanged" disabled="@_busy" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Kontakt email</label>
+                            <input class="form-control" value="@_model.ContactEmail" @oninput="OnEmailChanged" disabled="@_busy" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Opis</label>
+                            <textarea class="form-control" rows="5" @oninput="OnDescriptionChanged" disabled="@_busy">@_model.Description</textarea>
+                            
+                        </div>
+
+                        <button class="btn btn-primary" type="submit" disabled="@_busy">Spremi</button>
+
+                        @if (!string.IsNullOrWhiteSpace(_message))
+                        {
+                            <div class="alert alert-info mt-3 mb-0">@_message</div>
+                        }
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _loading = true;
+    private bool _busy = false;
+
+    private string? _message;
+    private string? _logoMessage;
+
+    private Organization? _org;
+
+    private EditContext _editContext = default!;
+    private OrgModel _model = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _editContext = new EditContext(_model);
+
+        SetLogoMessageFromQuery();
+
+        var me = await GetCurrentUserAsync();
+        if (me is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        _org = await OrgService.GetByOwnerUserIdAsync(me.Id);
+
+        if (_org is not null)
+        {
+            _model.Name = _org.Name;
+            _model.City = _org.City;
+            _model.ContactEmail = _org.ContactEmail;
+            _model.Description = _org.Description;
+        }
+
+        _loading = false;
+    }
+
+    private void SetLogoMessageFromQuery()
+    {
+        _logoMessage = null;
+
+        var uri = new Uri(NavigationManager.Uri);
+        var qs = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var logo = qs["logo"];
+
+        _logoMessage = logo switch
+        {
+            "ok" => "Logo je spremljen.",
+            "empty" => "Nije odabrana datoteka.",
+            "too_large" => "Datoteka je prevelika (max 2 MB).",
+            "bad_type" => "Dozvoljeni su samo PNG/JPG.",
+            "forbidden" => "Nemaš pravo za upload loga.",
+            "error" => "Upload nije uspio (server error).",
+            _ => null
+        };
+    }
+
+    private async Task Save(EditContext _)
+    {
+        _message = null;
+        _busy = true;
+
+        if (_org is null)
+        {
+            _busy = false;
+            return;
+        }
+
+        _org.City = (_model.City ?? "").Trim();
+        _org.ContactEmail = (_model.ContactEmail ?? "").Trim();
+        _org.Description = string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description.Trim();
+
+        var ok = await OrgService.UpdateProfileAsync(_org.Id, _org.City, _org.ContactEmail, _org.Description);
+        _message = ok ? "Spremljeno." : "Spremanje nije uspjelo.";
+
+        // reload
+        var me = await GetCurrentUserAsync();
+        if (me is not null)
+            _org = await OrgService.GetByOwnerUserIdAsync(me.Id);
+
+        _busy = false;
+    }
+
+    private void OnCityChanged(ChangeEventArgs e) => _model.City = e.Value?.ToString() ?? "";
+    private void OnEmailChanged(ChangeEventArgs e) => _model.ContactEmail = e.Value?.ToString() ?? "";
+    private void OnDescriptionChanged(ChangeEventArgs e) => _model.Description = e.Value?.ToString();
+
+    private static string GetOrgLogo(string? logoUrl)
+    {
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            return "/images/org-default.png";
+
+        return logoUrl.StartsWith("/") ? logoUrl : "/" + logoUrl;
+    }
+
+    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    {
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
+        if (principal?.Identity?.IsAuthenticated != true) return null;
+        return await UserManager.GetUserAsync(principal);
+    }
+
+    private class OrgModel
+    {
+        public string Name { get; set; } = "";
+        public string City { get; set; } = "";
+        public string ContactEmail { get; set; } = "";
+        public string? Description { get; set; }
+    }
+}

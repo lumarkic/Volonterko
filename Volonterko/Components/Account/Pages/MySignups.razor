@@ -4,10 +4,16 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
 @using Volonterko.Data
+@using Volonterko.Domain.Constants
+@using Volonterko.Domain.Enums
+@using Volonterko.Domain.Entities
 
+@inject ApplicationDbContext Db
 @inject UserManager<ApplicationUser> UserManager
 @inject Volonterko.Services.SignupService SignupService
+@inject NavigationManager NavigationManager
 
 @attribute [Authorize]
 
@@ -17,59 +23,368 @@
 {
     <p>Učitavanje...</p>
 }
-else if (_signups.Count == 0)
+else if (_isOrgUser)
 {
-    <div class="alert alert-secondary">Nema prijava.</div>
+    <div class="alert alert-warning">
+        Ovaj account je organizacijski. “Moje prijave” nisu dostupne za organizacijski account.
+        Ako želiš volontirati, koristi zaseban volonterski account.
+    </div>
 }
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Akcija</th>
-                <th>Organizacija</th>
-                <th>Početak</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var s in _signups)
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" value="@_statusFilter" @onchange="OnStatusChanged">
+                        <option value="@StatusFilter.All">Sve</option>
+                        <option value="@StatusFilter.Applied">Na čekanju</option>
+                        <option value="@StatusFilter.Accepted">Prihvaćeno</option>
+                        <option value="@StatusFilter.Attended">Odrađeno</option>
+                        <option value="@StatusFilter.Rejected">Odbijeno</option>
+                        <option value="@StatusFilter.Cancelled">Otkazano</option>
+                        <option value="@StatusFilter.NoShow">No-show</option>
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Vrijeme</label>
+                    <select class="form-select" value="@_timeFilter" @onchange="OnTimeChanged">
+                        <option value="@TimeFilter.All">Sve</option>
+                        <option value="@TimeFilter.Upcoming">Buduće</option>
+                        <option value="@TimeFilter.Past">Prošle</option>
+                    </select>
+                </div>
+
+                <div class="col-md-4 d-flex justify-content-end gap-2">
+                    <button class="btn btn-outline-primary" @onclick="Reload" disabled="@_busy">
+                        Osvježi
+                    </button>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <div class="text-muted small">
+                    Ukupno: <b>@_rows.Count</b>
+                </div>
+                <div class="text-muted small">
+                    Sati (Attended): <b>@_hoursTotal</b>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_message))
             {
-                <tr>
-                    <td>@s.VolunteerAction.Title</td>
-                    <td>@s.VolunteerAction.Organization.Name</td>
-                    <td>@s.VolunteerAction.StartDateTime.ToString("yyyy-MM-dd HH:mm")</td>
-                    <td>@s.Status</td>
-                </tr>
+                <div class="alert alert-info mt-3 mb-0">@_message</div>
             }
-        </tbody>
-    </table>
+        </div>
+    </div>
+
+    @if (_rows.Count == 0)
+    {
+        <div class="alert alert-secondary">
+            Nema prijava za odabrane kriterije.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Akcija</th>
+                        <th>Vrijeme</th>
+                        <th>Status</th>
+                        <th class="text-center">Sati</th>
+                        <th class="text-end">Akcije</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _rows)
+                    {
+                        <tr class="@GetActionRowClass(r.StartDateTime, r.EndDateTime)">
+                            <td>
+                                <div class="fw-semibold">@r.ActionTitle</div>
+                                <div class="small text-muted">@r.OrganizationName • @r.City</div>
+                            </td>
+
+                            <td>
+                                <div>@r.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                <div class="small @GetWhenTextClass(r.StartDateTime, r.EndDateTime)">
+                                    @GetWhenText(r.StartDateTime, r.EndDateTime)
+                                </div>
+                            </td>
+
+                            <td>
+                                <span class="badge @GetSignupBadgeClass(r.Status)">
+                                    @GetSignupStatusLabel(r.Status)
+                                </span>
+                            </td>
+
+                            <td class="text-center">
+                                @if (r.Status == SignupStatus.Attended && r.HoursAwarded is not null)
+                                {
+                                    <span class="fw-semibold">@r.HoursAwarded</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+
+                            <td class="text-end">
+                                <div class="d-inline-flex flex-wrap gap-2 justify-content-end">
+                                    <a class="btn btn-sm btn-outline-primary" href="@($"/actions/{r.ActionId}")">
+                                        Detalji
+                                    </a>
+
+                                    @if (r.Status is SignupStatus.Applied or SignupStatus.Accepted)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => Cancel(r.ActionId)"
+                                                disabled="@_busy">
+                                            Odjavi
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
 }
 
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     private bool _loading = true;
-    private List<Volonterko.Domain.Entities.Signup> _signups = new();
+    private bool _busy = false;
+    private bool _isOrgUser = false;
+
+    private string? _message;
+
+    private StatusFilter _statusFilter = StatusFilter.All;
+    private TimeFilter _timeFilter = TimeFilter.All;
+
+    private List<Row> _rows = new();
+    private decimal _hoursTotal = 0m;
 
     protected override async Task OnInitializedAsync()
     {
-        var user = await GetCurrentUserAsync();
-        if (user is null)
-        {
-            _loading = false;
-            return;
-        }
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
 
-        _signups = await SignupService.GetMySignupsAsync(user.Id);
+        _isOrgUser = principal.IsInRole(Roles.Organization);
+
+        await Reload();
         _loading = false;
     }
 
-    private async Task<ApplicationUser?> GetCurrentUserAsync()
+    private async Task Reload()
     {
-        var authState = await AuthenticationStateTask;
-        var principal = authState.User;
-        if (principal?.Identity?.IsAuthenticated != true) return null;
-        return await UserManager.GetUserAsync(principal);
+        _message = null;
+
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
+
+        if (principal?.Identity?.IsAuthenticated != true)
+        {
+            _rows = new();
+            return;
+        }
+
+        if (_isOrgUser)
+        {
+            _rows = new();
+            return;
+        }
+
+        var me = await UserManager.GetUserAsync(principal);
+        if (me is null)
+        {
+            _rows = new();
+            return;
+        }
+
+        var now = DateTime.Now;
+
+        var q = Db.Signups
+            .AsNoTracking()
+            .Include(s => s.VolunteerAction)
+                .ThenInclude(a => a.Organization)
+            .Where(s => s.UserId == me.Id);
+
+        // status filter
+        q = _statusFilter switch
+        {
+            StatusFilter.Applied => q.Where(s => s.Status == SignupStatus.Applied),
+            StatusFilter.Accepted => q.Where(s => s.Status == SignupStatus.Accepted),
+            StatusFilter.Attended => q.Where(s => s.Status == SignupStatus.Attended),
+            StatusFilter.Rejected => q.Where(s => s.Status == SignupStatus.Rejected),
+            StatusFilter.Cancelled => q.Where(s => s.Status == SignupStatus.Cancelled),
+            StatusFilter.NoShow => q.Where(s => s.Status == SignupStatus.NoShow),
+            _ => q
+        };
+
+        // time filter (based on action start/end)
+        q = _timeFilter switch
+        {
+            TimeFilter.Upcoming => q.Where(s => s.VolunteerAction.StartDateTime >= now),
+            TimeFilter.Past => q.Where(s => s.VolunteerAction.EndDateTime < now),
+            _ => q
+        };
+
+        _rows = await q
+            .OrderByDescending(s => s.CreatedAt)
+            .Select(s => new Row
+            {
+                SignupId = s.Id,
+                ActionId = s.VolunteerActionId,
+                ActionTitle = s.VolunteerAction.Title,
+                City = s.VolunteerAction.City,
+                OrganizationName = s.VolunteerAction.Organization.Name,
+                StartDateTime = s.VolunteerAction.StartDateTime,
+                EndDateTime = s.VolunteerAction.EndDateTime,
+                Status = s.Status,
+                HoursAwarded = s.HoursAwarded
+            })
+            .ToListAsync();
+
+        _hoursTotal = _rows
+            .Where(r => r.Status == SignupStatus.Attended && r.HoursAwarded is not null)
+            .Sum(r => r.HoursAwarded ?? 0m);
     }
+
+    private async Task OnStatusChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<StatusFilter>(e.Value?.ToString(), out var parsed))
+            _statusFilter = parsed;
+
+        await Reload();
+    }
+
+    private async Task OnTimeChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<TimeFilter>(e.Value?.ToString(), out var parsed))
+            _timeFilter = parsed;
+
+        await Reload();
+    }
+
+    private async Task Cancel(int actionId)
+    {
+        _busy = true;
+        _message = null;
+
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
+        var me = await UserManager.GetUserAsync(principal);
+
+        if (me is null)
+        {
+            _busy = false;
+            return;
+        }
+
+        var ok = await SignupService.CancelSignupAsync(actionId, me.Id);
+        _message = ok ? "Odjava je uspješna." : "Odjava nije uspjela.";
+
+        _busy = false;
+        await Reload();
+    }
+
+    private static string GetSignupStatusLabel(SignupStatus st) => st switch
+    {
+        SignupStatus.Applied => "Na čekanju",
+        SignupStatus.Accepted => "Prihvaćen",
+        SignupStatus.Rejected => "Odbijen",
+        SignupStatus.Attended => "Odrađeno",
+        SignupStatus.NoShow => "No-show",
+        SignupStatus.Cancelled => "Otkazano",
+        _ => st.ToString()
+    };
+
+    private static string GetSignupBadgeClass(SignupStatus st) => st switch
+    {
+        SignupStatus.Applied => "bg-secondary",
+        SignupStatus.Accepted => "bg-success",
+        SignupStatus.Attended => "bg-primary",
+        SignupStatus.Rejected => "bg-danger",
+        SignupStatus.Cancelled => "bg-light text-dark border",
+        SignupStatus.NoShow => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    private static string GetWhenText(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "Danas (u tijeku)";
+        if (start.Date == now.Date) return $"Danas u {start:HH:mm}";
+        if (start.Date == now.Date.AddDays(1)) return "Sutra";
+
+        var days = (start.Date - now.Date).Days;
+        if (days > 1 && days <= 14) return $"Za {days} dana";
+
+        if (end < now) return "Prošlo";
+        return start.ToString("yyyy-MM-dd");
+    }
+
+    private static string GetWhenTextClass(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "text-danger fw-semibold";
+        if (start.Date == now.Date) return "text-danger fw-semibold";
+        if (start <= now.AddDays(2)) return "text-warning fw-semibold";
+        return "text-muted";
+    }
+
+    private static string GetActionRowClass(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "table-danger";
+        if (start.Date == now.Date) return "table-warning";
+        if (start <= now.AddDays(2)) return "table-warning";
+        return "";
+    }
+
+    private enum StatusFilter
+    {
+        All,
+        Applied,
+        Accepted,
+        Attended,
+        Rejected,
+        Cancelled,
+        NoShow
+    }
+
+    private enum TimeFilter
+    {
+        All,
+        Upcoming,
+        Past
+    }
+
+    
+    private class Row
+    {
+        public int SignupId { get; set; }
+        public int ActionId { get; set; }
+
+        public string ActionTitle { get; set; } = "";
+        public string City { get; set; } = "";
+        public string OrganizationName { get; set; } = "";
+
+        public DateTime StartDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+
+        public SignupStatus Status { get; set; }
+        public decimal? HoursAwarded { get; set; }
+    }
+
 }

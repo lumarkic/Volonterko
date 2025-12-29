@@ -1,95 +1,219 @@
-﻿@rendermode InteractiveServer
+﻿@page "/admin/orgs"
+@rendermode InteractiveServer
 
-@page "/admin/orgs"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
 @using Volonterko.Data
 @using Volonterko.Domain.Constants
+@using Volonterko.Domain.Enums
+@using Volonterko.Domain.Entities
+
+@inject ApplicationDbContext Db
 @inject UserManager<ApplicationUser> UserManager
 @inject Volonterko.Services.OrganizationService OrgService
+
 @attribute [Authorize(Roles = Roles.Admin)]
 
-<h3>Admin: Organizacije (Pending)</h3>
+<h3>Admin – Organizacije</h3>
 
 @if (_loading)
 {
     <p>Učitavanje...</p>
 }
-else if (_pending.Count == 0)
-{
-    <div class="alert alert-secondary">Nema organizacija za odobravanje.</div>
-}
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Naziv</th>
-                <th>Grad</th>
-                <th>Email</th>
-                <th>OwnerUserId</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var o in _pending)
-            {
-                <tr>
-                    <td>@o.Name</td>
-                    <td>@o.City</td>
-                    <td>@o.ContactEmail</td>
-                    <td style="font-family: monospace;">@o.OwnerUserId</td>
-                    <td class="text-end">
-                        <button class="btn btn-success btn-sm me-2" @onclick="() => ApproveAsync(o.Id, o.OwnerUserId)">Approve</button>
-                        <button class="btn btn-danger btn-sm" @onclick="() => RejectAsync(o.Id)">Reject</button>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Filter status</label>
+                    <select class="form-select" value="@_filter" @onchange="OnFilterChanged">
+                        <option value="@OrgFilter.Pending">Pending</option>
+                        <option value="@OrgFilter.Approved">Approved</option>
+                        <option value="@OrgFilter.Rejected">Rejected</option>
+                        <option value="@OrgFilter.All">All</option>
+                    </select>
+                </div>
 
-    @if (!string.IsNullOrWhiteSpace(_message))
+                <div class="col-md-8 d-flex justify-content-end gap-2">
+                    <button class="btn btn-outline-primary" @onclick="Reload" disabled="@_busy">Osvježi</button>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_message))
+            {
+                <div class="alert alert-info mt-3 mb-0">@_message</div>
+            }
+        </div>
+    </div>
+
+    @if (_orgs.Count == 0)
     {
-        <div class="alert alert-info">@_message</div>
+        <div class="alert alert-secondary">Nema organizacija za odabrani filter.</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Naziv</th>
+                        <th>Grad</th>
+                        <th>Kontakt</th>
+                        <th>Status</th>
+                        <th>Owner</th>
+                        <th class="text-end">Akcije</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var o in _orgs)
+                    {
+                        var owner = _owners.TryGetValue(o.OwnerUserId, out var u) ? u : null;
+
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">@o.Name</div>
+                                @if (!string.IsNullOrWhiteSpace(o.Description))
+                                {
+                                    <div class="small text-muted">@Shorten(o.Description, 120)</div>
+                                }
+                            </td>
+                            <td>@o.City</td>
+                            <td class="small">@o.ContactEmail</td>
+                            <td>
+                                <span class="badge @OrgStatusBadge(o.Status)">@o.Status</span>
+                            </td>
+                            <td class="small">
+                                <div>@(owner?.Email ?? o.OwnerUserId)</div>
+                                <div class="text-muted">@owner?.UserName</div>
+                            </td>
+                            <td class="text-end">
+                                <div class="d-inline-flex flex-wrap gap-2 justify-content-end">
+                                    @if (o.Status == OrganizationStatus.Pending)
+                                    {
+                                        <button class="btn btn-sm btn-success"
+                                                @onclick="() => Approve(o.Id)"
+                                                disabled="@_busy">
+                                            Approve
+                                        </button>
+
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => Reject(o.Id)"
+                                                disabled="@_busy">
+                                            Reject
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">—</span>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
     }
 }
 
 @code {
     private bool _loading = true;
+    private bool _busy = false;
     private string? _message;
-    private List<Volonterko.Domain.Entities.Organization> _pending = new();
+
+    private OrgFilter _filter = OrgFilter.Pending;
+
+    private List<Organization> _orgs = new();
+    private Dictionary<string, ApplicationUser> _owners = new();
 
     protected override async Task OnInitializedAsync()
     {
-        await ReloadAsync();
-    }
-
-    private async Task ReloadAsync()
-    {
-        _loading = true;
-        _message = null;
-        _pending = await OrgService.GetPendingAsync();
+        await Reload();
         _loading = false;
     }
 
-    private async Task ApproveAsync(int orgId, string ownerUserId)
+    private async Task OnFilterChanged(ChangeEventArgs e)
     {
-        await OrgService.ApproveAsync(orgId);
+        if (Enum.TryParse<OrgFilter>(e.Value?.ToString(), out var f))
+            _filter = f;
 
-        var user = await UserManager.FindByIdAsync(ownerUserId);
-        if (user is not null && !await UserManager.IsInRoleAsync(user, Roles.Organization))
-        {
-            await UserManager.AddToRoleAsync(user, Roles.Organization);
-        }
-
-        _message = "Organizacija odobrena i korisniku dodijeljena uloga Organization.";
-        await ReloadAsync();
+        await Reload();
     }
 
-    private async Task RejectAsync(int orgId)
+    private async Task Reload()
     {
-        await OrgService.RejectAsync(orgId);
-        _message = "Organizacija odbijena.";
-        await ReloadAsync();
+        _busy = true;
+        _message = null;
+
+        IQueryable<Organization> q = Db.Organizations.AsNoTracking();
+
+        q = _filter switch
+        {
+            OrgFilter.Pending => q.Where(o => o.Status == OrganizationStatus.Pending),
+            OrgFilter.Approved => q.Where(o => o.Status == OrganizationStatus.Approved),
+            OrgFilter.Rejected => q.Where(o => o.Status == OrganizationStatus.Rejected),
+            _ => q
+        };
+
+        _orgs = await q.OrderBy(o => o.Name).ToListAsync();
+
+        var ownerIds = _orgs.Select(x => x.OwnerUserId).Distinct().ToList();
+        _owners = await Db.Users.AsNoTracking()
+            .Where(u => ownerIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id);
+
+        _busy = false;
+    }
+
+    private async Task Approve(int orgId)
+    {
+        _busy = true;
+        _message = null;
+
+        var ok = await OrgService.ApproveAndAssignRoleAsync(orgId, Roles.Organization);
+
+        _message = ok
+            ? "Organizacija je odobrena i korisniku je dodijeljena Organization rola. Napomena: korisnik treba Logout/Login da se osvježi meni i prava."
+            : "Approve nije uspio (provjeri owner user ili status).";
+
+        _busy = false;
+        await Reload();
+    }
+
+    private async Task Reject(int orgId)
+    {
+        _busy = true;
+        _message = null;
+
+        var ok = await OrgService.RejectAsync(orgId);
+
+        _message = ok ? "Organizacija je odbijena." : "Reject nije uspio.";
+
+        _busy = false;
+        await Reload();
+    }
+
+    private static string Shorten(string text, int maxLen)
+    {
+        var t = text.Trim();
+        return t.Length <= maxLen ? t : t.Substring(0, maxLen) + "…";
+    }
+
+    private static string OrgStatusBadge(OrganizationStatus st) => st switch
+    {
+        OrganizationStatus.Pending => "bg-warning text-dark",
+        OrganizationStatus.Approved => "bg-success",
+        OrganizationStatus.Rejected => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private enum OrgFilter
+    {
+        Pending,
+        Approved,
+        Rejected,
+        All
     }
 }

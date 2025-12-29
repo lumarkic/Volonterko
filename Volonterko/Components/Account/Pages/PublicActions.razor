@@ -1,62 +1,478 @@
 ﻿@page "/actions"
 @rendermode InteractiveServer
 
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
+@using Volonterko.Data
+@using Volonterko.Domain.Constants
 @using Volonterko.Domain.Enums
-@inject Volonterko.Data.ApplicationDbContext Db
 
-<h3>Volonterske akcije</h3>
+@inject ApplicationDbContext Db
+
+<h3 class="mb-3">Javne akcije</h3>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Pretraga (naziv)</label>
+                <input class="form-control"
+                       placeholder="Upiši dio naziva akcije..."
+                       value="@_search"
+                       @oninput="OnSearchChanged" />
+                <div class="form-text">Pretraga je debounced (ne reload-a na svaki znak).</div>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Grad</label>
+                <select class="form-select" value="@_city" @onchange="OnCityChanged">
+                    <option value="">Svi gradovi</option>
+                    @foreach (var c in _cities)
+                    {
+                        <option value="@c">@c</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Vrijeme</label>
+                <select class="form-select" value="@_timeFilter" @onchange="OnTimeFilterChanged">
+                    <option value="@TimeFilter.Upcoming">Buduće (default)</option>
+                    <option value="@TimeFilter.Today">Danas</option>
+                    <option value="@TimeFilter.Next7Days">U sljedećih 7 dana</option>
+                    <option value="@TimeFilter.All">Sve</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="row g-2 align-items-end mt-2">
+            <div class="col-md-3">
+                <label class="form-label">Po stranici</label>
+                <select class="form-select" value="@_pageSize" @onchange="OnPageSizeChanged">
+                    <option value="10">10</option>
+                    <option value="12">12</option>
+                    <option value="24">24</option>
+                </select>
+            </div>
+
+            <div class="col-md-9 d-flex justify-content-end gap-2">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearFilters" disabled="@_loading">
+                    Očisti filtere
+                </button>
+                <button class="btn btn-sm btn-outline-primary" @onclick="Reload" disabled="@_loading">
+                    Osvježi
+                </button>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div class="text-muted small">
+                @if (_loading)
+                {
+                    <span>Učitavanje...</span>
+                }
+                else
+                {
+                    <span>Ukupno: <b>@_totalCount</b> • Stranica: <b>@(_pageIndex + 1)</b> / <b>@_totalPages</b></span>
+                }
+            </div>
+
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary"
+                        @onclick="PrevPage"
+                        disabled="@(_loading || _pageIndex <= 0)">
+                    Prev
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        @onclick="NextPage"
+                        disabled="@(_loading || _pageIndex >= _totalPages - 1)">
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 @if (_loading)
 {
     <p>Učitavanje...</p>
 }
-else if (_actions.Count == 0)
+else if (_items.Count == 0)
 {
-    <div class="alert alert-secondary">Trenutno nema objavljenih akcija.</div>
+    <div class="alert alert-secondary">
+        Nema akcija koje odgovaraju kriterijima.
+    </div>
 }
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Naziv</th>
-                <th>Grad</th>
-                <th>Početak</th>
-                <th>Organizacija</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var a in _actions)
-            {
-                <tr>
-                    <td>@a.Title</td>
-                    <td>@a.City</td>
-                    <td>@a.StartDateTime.ToString("yyyy-MM-dd HH:mm")</td>
-                    <td>@a.Organization.Name</td>
-                    <td class="text-end">
-                        <a class="btn btn-sm btn-outline-primary" href="@($"/actions/{a.Id}")">Detalji</a>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <div class="row g-3">
+        @foreach (var a in _items)
+        {
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="card h-100 shadow-sm">
+
+                    <div class="position-relative">
+                        <div class="ratio ratio-16x9">
+                            <img src="@a.ImageUrl"
+                                 alt="Akcija"
+                                 style="width:100%; height:100%; object-fit:cover;" />
+                        </div>
+
+                        <div class="position-absolute" style="top: 10px; right: 10px;">
+                            @if (a.IsFull)
+                            {
+                                <span class="badge bg-danger">Popunjeno</span>
+                            }
+                            else if (IsOngoing(a.StartDateTime, a.EndDateTime))
+                            {
+                                <span class="badge bg-danger">U tijeku</span>
+                            }
+                            else if (IsToday(a.StartDateTime))
+                            {
+                                <span class="badge bg-warning text-dark">Danas</span>
+                            }
+                            else if (IsSoon(a.StartDateTime))
+                            {
+                                <span class="badge bg-warning text-dark">Uskoro</span>
+                            }
+                        </div>
+
+                        <a href="@($"/org/{a.OrganizationId}")"
+                           title="@a.OrganizationName"
+                           class="position-absolute"
+                           style="left:12px; bottom:-18px; width:44px; height:44px; display:block; text-decoration:none;">
+                            <div class="rounded-circle border bg-white shadow-sm overflow-hidden"
+                                 style="width:44px; height:44px;">
+                                <img src="@a.OrganizationLogoUrl"
+                                     alt="Logo"
+                                     style="width:100%; height:100%; object-fit:cover;" />
+                            </div>
+                        </a>
+                    </div>
+
+                    <div class="card-body d-flex flex-column" style="padding-top: 28px;">
+                        <h5 class="card-title mb-1">@a.Title</h5>
+
+                        <div class="text-muted small mb-2">
+                            <span class="me-2">@a.City</span>
+                            <span>•</span>
+                            <a class="ms-2 text-decoration-none" href="@($"/org/{a.OrganizationId}")">@a.OrganizationName</a>
+                        </div>
+
+                        <div class="mb-2">
+                            <div class="fw-semibold">@a.StartDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                            <div class="small @GetWhenTextClass(a.StartDateTime, a.EndDateTime)">
+                                @GetWhenText(a.StartDateTime, a.EndDateTime)
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(a.DescriptionShort))
+                        {
+                            <div class="text-muted small mb-3">@a.DescriptionShort</div>
+                        }
+
+                        <div class="mt-auto">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="small text-muted">
+                                    Prijavljeno: <b>@a.SignupCount</b>
+                                    @if (a.RequiredVolunteers > 0)
+                                    {
+                                        <span>/ @a.RequiredVolunteers</span>
+                                    }
+                                </div>
+
+                                @if (a.RequiredVolunteers > 0)
+                                {
+                                    <div class="small text-muted">
+                                        Preostalo: <b>@Math.Max(0, a.RequiredVolunteers - a.SignupCount)</b>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="d-grid gap-2">
+                                @if (_canVolunteer && !a.IsFull)
+                                {
+                                    <a class="btn btn-primary" href="@($"/actions/{a.Id}")">Prijavi se</a>
+                                }
+                                else if (_canVolunteer && a.IsFull)
+                                {
+                                    <button class="btn btn-secondary" disabled>Popunjeno</button>
+                                }
+
+                                <a class="btn btn-outline-primary" href="@($"/actions/{a.Id}")">Detalji</a>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        }
+    </div>
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private const string DefaultActionImageUrl = "/images/action-default.png";
+    private const string DefaultOrgLogoUrl = "/images/org-default.png";
+
     private bool _loading = true;
-    private List<Volonterko.Domain.Entities.VolunteerAction> _actions = new();
+    private bool _canVolunteer = false;
+
+    private string _search = "";
+    private string _city = "";
+    private TimeFilter _timeFilter = TimeFilter.Upcoming;
+
+    private int _pageSize = 12;
+    private int _pageIndex = 0;
+    private int _totalCount = 0;
+    private int _totalPages = 1;
+
+    private List<string> _cities = new();
+    private List<Row> _items = new();
+
+    private CancellationTokenSource? _debounceCts;
 
     protected override async Task OnInitializedAsync()
     {
-        _actions = await Db.VolunteerActions
+        var auth = await AuthenticationStateTask;
+        var principal = auth.User;
+
+        _canVolunteer = principal?.Identity?.IsAuthenticated == true && !principal.IsInRole(Roles.Organization);
+
+        await LoadCities();
+        await Reload();
+    }
+
+    private async Task LoadCities()
+    {
+        _cities = await Db.VolunteerActions
+            .AsNoTracking()
+            .Where(a => a.Status == VolunteerActionStatus.Published && a.City != null && a.City != "")
+            .Select(a => a.City)
+            .Distinct()
+            .OrderBy(c => c)
+            .ToListAsync();
+    }
+
+    private async Task Reload()
+    {
+        _loading = true;
+
+        var now = DateTime.Now;
+
+        var baseQuery = Db.VolunteerActions
             .AsNoTracking()
             .Include(a => a.Organization)
-            .Where(a => a.Status == VolunteerActionStatus.Published)
+            .Where(a => a.Status == VolunteerActionStatus.Published);
+
+        baseQuery = _timeFilter switch
+        {
+            TimeFilter.Today => baseQuery.Where(a => a.StartDateTime.Date == now.Date),
+            TimeFilter.Next7Days => baseQuery.Where(a => a.StartDateTime >= now && a.StartDateTime < now.AddDays(7)),
+            TimeFilter.Upcoming => baseQuery.Where(a => a.StartDateTime >= now),
+            TimeFilter.All => baseQuery,
+            _ => baseQuery
+        };
+
+        if (!string.IsNullOrWhiteSpace(_city))
+        {
+            var c = _city.Trim();
+            baseQuery = baseQuery.Where(a => a.City.Contains(c));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.Trim();
+            baseQuery = baseQuery.Where(a => a.Title.Contains(s));
+        }
+
+        _totalCount = await baseQuery.CountAsync();
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_totalCount / (double)_pageSize));
+
+        if (_pageIndex < 0) _pageIndex = 0;
+        if (_pageIndex > _totalPages - 1) _pageIndex = _totalPages - 1;
+
+        var pageQuery = baseQuery
             .OrderBy(a => a.StartDateTime)
+            .Skip(_pageIndex * _pageSize)
+            .Take(_pageSize);
+
+        var cacheBust = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+
+        _items = await pageQuery
+            .Select(a => new Row
+            {
+                Id = a.Id,
+                Title = a.Title,
+                City = a.City,
+                StartDateTime = a.StartDateTime,
+                EndDateTime = a.EndDateTime,
+
+                OrganizationId = a.OrganizationId,
+                OrganizationName = a.Organization.Name,
+
+                RequiredVolunteers = a.RequiredVolunteers,
+
+                DescriptionShort = a.Description == null
+                    ? null
+                    : (a.Description.Length <= 140 ? a.Description : a.Description.Substring(0, 140) + "…"),
+
+                SignupCount = Db.Signups.Count(s =>
+                    s.VolunteerActionId == a.Id &&
+                    s.Status != SignupStatus.Cancelled &&
+                    s.Status != SignupStatus.Rejected),
+
+                ImageUrl = (a.ImageUrl == null || a.ImageUrl == "")
+                    ? (DefaultActionImageUrl + "?v=" + cacheBust)
+                    : ((a.ImageUrl.StartsWith("/") ? a.ImageUrl : "/" + a.ImageUrl) + "?v=" + cacheBust),
+
+                OrganizationLogoUrl = (a.Organization.LogoUrl == null || a.Organization.LogoUrl == "")
+                    ? (DefaultOrgLogoUrl + "?v=" + cacheBust)
+                    : ((a.Organization.LogoUrl.StartsWith("/") ? a.Organization.LogoUrl : "/" + a.Organization.LogoUrl) + "?v=" + cacheBust),
+            })
             .ToListAsync();
 
+        foreach (var r in _items)
+            r.IsFull = r.RequiredVolunteers > 0 && r.SignupCount >= r.RequiredVolunteers;
+
         _loading = false;
+    }
+
+    private async Task OnSearchChanged(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _pageIndex = 0;
+        await DebouncedReload();
+    }
+
+    private async Task OnCityChanged(ChangeEventArgs e)
+    {
+        _city = e.Value?.ToString() ?? "";
+        _pageIndex = 0;
+        await Reload();
+    }
+
+    private async Task OnTimeFilterChanged(ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString() ?? TimeFilter.Upcoming.ToString();
+        if (!Enum.TryParse<TimeFilter>(v, out var parsed))
+            parsed = TimeFilter.Upcoming;
+
+        _timeFilter = parsed;
+        _pageIndex = 0;
+        await Reload();
+    }
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var n))
+            _pageSize = n;
+
+        _pageIndex = 0;
+        await Reload();
+    }
+
+    private async Task ClearFilters()
+    {
+        _search = "";
+        _city = "";
+        _timeFilter = TimeFilter.Upcoming;
+        _pageIndex = 0;
+        await Reload();
+    }
+
+    private async Task PrevPage()
+    {
+        if (_pageIndex <= 0) return;
+        _pageIndex--;
+        await Reload();
+    }
+
+    private async Task NextPage()
+    {
+        if (_pageIndex >= _totalPages - 1) return;
+        _pageIndex++;
+        await Reload();
+    }
+
+    private async Task DebouncedReload()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        try
+        {
+            await Task.Delay(300, token);
+            await Reload();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private static bool IsOngoing(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+        return now >= start && now <= end;
+    }
+
+    private static bool IsToday(DateTime start)
+        => start.Date == DateTime.Now.Date;
+
+    private static bool IsSoon(DateTime start)
+        => start > DateTime.Now && start <= DateTime.Now.AddDays(2);
+
+    private static string GetWhenText(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "Danas (u tijeku)";
+        if (start.Date == now.Date) return $"Danas u {start:HH:mm}";
+        if (start.Date == now.Date.AddDays(1)) return "Sutra";
+
+        var days = (start.Date - now.Date).Days;
+        if (days > 1 && days <= 14) return $"Za {days} dana";
+
+        if (end < now) return "Prošlo";
+        return start.ToString("yyyy-MM-dd");
+    }
+
+    private static string GetWhenTextClass(DateTime start, DateTime end)
+    {
+        var now = DateTime.Now;
+
+        if (now >= start && now <= end) return "text-danger fw-semibold";
+        if (start.Date == now.Date) return "text-danger fw-semibold";
+        if (start <= now.AddDays(2)) return "text-warning fw-semibold";
+        return "text-muted";
+    }
+
+    private enum TimeFilter
+    {
+        Upcoming,
+        Today,
+        Next7Days,
+        All
+    }
+
+    private class Row
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public string City { get; set; } = "";
+        public DateTime StartDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+
+        public int OrganizationId { get; set; }
+        public string OrganizationName { get; set; } = "";
+        public string OrganizationLogoUrl { get; set; } = DefaultOrgLogoUrl;
+
+        public int RequiredVolunteers { get; set; }
+        public int SignupCount { get; set; }
+        public bool IsFull { get; set; }
+
+        public string? DescriptionShort { get; set; }
+        public string ImageUrl { get; set; } = DefaultActionImageUrl;
     }
 }

@@ -17,7 +17,7 @@
     <nav class="flex-column">
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Naslovna
             </NavLink>
         </div>
 
@@ -28,8 +28,6 @@
             </NavLink>
         </div>
 
-    
-
         <AuthorizeView Context="auth">
             <Authorized>
                 @{
@@ -39,6 +37,13 @@
 
                 @if (isOrg)
                 {
+                    <!-- ✅ NEW: organization profile -->
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="org/profile">
+                            <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Profil organizacije
+                        </NavLink>
+                    </div>
+
                     <div class="nav-item px-3">
                         <NavLink class="nav-link" href="org/actions">
                             <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Moje akcije
@@ -53,6 +58,12 @@
                 }
                 else
                 {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="me/profile">
+                            <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Moj profil
+                        </NavLink>
+                    </div>
+
                     <div class="nav-item px-3">
                         <NavLink class="nav-link" href="me/signups">
                             <span class="bi bi-list-check-nav-menu" aria-hidden="true"></span> Moje prijave
@@ -87,7 +98,7 @@
                         <AntiforgeryToken />
                         <input type="hidden" name="ReturnUrl" value="@currentUrl" />
                         <button type="submit" class="nav-link">
-                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Logout
+                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Odjava
                         </button>
                     </form>
                 </div>
@@ -96,18 +107,16 @@
             <NotAuthorized Context="anon">
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Register">
-                        <span class="bi bi-person-nav-menu" aria-hidden="true"></span> Register
+                        <span class="bi bi-person-nav-menu" aria-hidden="true"></span> Registracija
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Login">
-                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Login
+                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Prijava
                     </NavLink>
                 </div>
             </NotAuthorized>
         </AuthorizeView>
-
-       
     </nav>
 </div>
 
