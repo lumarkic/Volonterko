@@ -1,0 +1,11 @@
+﻿.qr-wrap {
+    max-width: 240px;
+    width: 100%;
+    margin: 12px auto;
+}
+
+.qr-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}

@@ -6,6 +6,7 @@
 @using System.Text.Encodings.Web
 @using Microsoft.AspNetCore.Identity
 @using Volonterko.Data
+@using Net.Codecrete.QrCodeGenerator
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IdentityUserAccessor UserAccessor
@@ -38,9 +39,18 @@ else
             </li>
             <li>
                 <p>Scan the QR Code or enter this key <kbd>@sharedKey</kbd> into your two factor authenticator app. Spaces and casing do not matter.</p>
-                <div class="alert alert-info">Learn how to <a href="https://go.microsoft.com/fwlink/?Linkid=852423">enable QR code generation</a>.</div>
-                <div></div>
-                <div data-url="@authenticatorUri"></div>
+                @if (!string.IsNullOrWhiteSpace(svgGraphicsPath))
+                {
+                    <div class="qr-wrap">
+                        <svg class="qr-svg"
+                             xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 @qrSize @qrSize"
+                             preserveAspectRatio="xMidYMid meet">
+                            <rect width="@qrSize" height="@qrSize" fill="white" />
+                            <path d="@svgGraphicsPath" fill="black" />
+                        </svg>
+                    </div>
+                }
             </li>
             <li>
                 <p>
@@ -73,6 +83,8 @@ else
     private ApplicationUser user = default!;
     private string? sharedKey;
     private string? authenticatorUri;
+    private string? svgGraphicsPath;
+    private int qrSize;
     private IEnumerable<string>? recoveryCodes;
 
     [CascadingParameter]
@@ -132,6 +144,10 @@ else
 
         var email = await UserManager.GetEmailAsync(user);
         authenticatorUri = GenerateQrCodeUri(email!, unformattedKey!);
+
+        var qr = QrCode.EncodeText(authenticatorUri, QrCode.Ecc.Medium);
+        svgGraphicsPath = qr.ToGraphicsPath();
+        qrSize = qr.Size;
     }
 
     private string FormatKey(string unformattedKey)
@@ -169,4 +185,5 @@ else
         [Display(Name = "Verification Code")]
         public string Code { get; set; } = "";
     }
+
 }
